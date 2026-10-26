@@ -76,3 +76,39 @@ then compare the legacy uniform, joint-guard and observation-time models
 on the same receiver-generated observations. Measure accuracy, Brier
 score, truth survival, and sensitivity to deadline sigma. Avoid claiming
 a performance improvement until these paired experiments pass.
+
+
+## Paired crossing experiment (2026-10-27)
+
+The crossing harness now supports `--observation-detection-probability`
+and `--deadline-sigmas`, plus an optional receiver-silence window specified
+by `--silent-start-ms` and `--silent-stop-ms`. Identical random seeds
+produce the same detected PDWs and initial priors across models.
+
+For observation-time runs, the harness calls `advance_time(toa)` after
+each PDW, and then advances to the end of the simulated record. No future
+PDW is disclosed to the tracker when setting the watermark. The simulated
+silent interval drops detections but **does not stop emitter transmissions**.
+Thus constant-Pd tracker assumptions are intentionally violated during
+receiver silence; such a run measures robustness to unmodelled receiver
+outages, not correctly specified Bayesian inference.
+
+Suggested comparisons (run separately; same scenario, trials, beam and Pd):
+
+```bash
+python crossing_pulse_stress.py --scenario very_close --trials 100 --pd .70 --beam 128
+python crossing_pulse_stress.py --scenario very_close --trials 100 --pd .70 --beam 128 --joint-detection-probability .70
+python crossing_pulse_stress.py --scenario very_close --trials 100 --pd .70 --beam 128 --observation-detection-probability .70
+```
+
+For a controlled receiver outage, add
+`--silent-start-ms 18 --silent-stop-ms 23` to each command.
+Check `joint_accuracy`, `joint_brier`, calibration bins,
+`truth_history_survival_fraction`, and retained hypothesis counts.
+
+**Caution:** The initial observation-time implementation uses a hard
+deadline and treats skipped slots on the selected emitter as misses when
+a PDW is associated. The resulting approximation is not yet a complete
+joint event-time likelihood. In particular, repeated watermarks may be
+statistically uninformative when all hypotheses predict identical counts
+of overdue pulses. No performance benefit is presumed.
