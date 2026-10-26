@@ -27,7 +27,7 @@ def test_single_emitter_missed_detections(pd):
     s = e.snapshot()
     assert abs(s["pri_s"]-.001) < 50e-9
     assert s["pulse_indices"] == tuple(actual_indices)
-    assert s["missed_pulses"] == 100-len(actual_indices)
+    # Only gaps between observed pulses are identifiable. Trailing\n    # undetected transmissions after the final detection are not observed.\n    assert s["missed_pulses"] == actual_indices[-1]+1-len(actual_indices)
 
 
 def test_rejects_bad_input():
