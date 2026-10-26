@@ -140,6 +140,15 @@ class JointTimingTracker:
                     updated,ll = outcome
                     tracks = list(hypothesis.tracks)
                     tracks[emitter] = updated
+                    if self.detection_probability is None:
+                        skip_log_prior = -math.log(2*self.max_skip)
+                    elif self.detection_probability == 1.:
+                        skip_log_prior = -math.log(2.)
+                    else:
+                        gap = n-track.index
+                        skip_log_prior = (math.log(self.detection_probability)
+                                          +(gap-1)*math.log1p(-self.detection_probability)
+                                          -math.log(2.))
                     branches.append(JointHypothesis(
                         tuple(tracks),
                         HistoryNode(hypothesis.history,emitter,n),
