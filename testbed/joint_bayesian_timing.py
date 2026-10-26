@@ -90,14 +90,22 @@ def update(track, toa, n, measurement_variance):
 
 
 class JointTimingTracker:
-    def __init__(self, initial, beam_width=64, max_skip=12,\n                 retained_mass=None, min_beam=1):
+    def __init__(self, initial, beam_width=64, max_skip=12,
+                 retained_mass=None, min_beam=1):
         """initial: two (epoch,PRI,epoch_sigma,PRI_sigma) tuples.
 
         Epoch and PRI prior covariance initially assumed zero.
         """
         if len(initial) != 2 or beam_width < 1 or max_skip < 1:
             raise ValueError("Two tracks and positive beam/skip required")
-        if retained_mass is not None and not 0 < retained_mass <= 1:\n            raise ValueError("retained_mass must be in (0, 1]")\n        if not 1 <= min_beam <= beam_width:\n            raise ValueError("min_beam must be between 1 and beam_width")\n        self.retained_mass = retained_mass\n        self.min_beam = min_beam\n        self.pruning_diagnostics = {}\n        tracks = []
+        if retained_mass is not None and not 0 < retained_mass <= 1:
+            raise ValueError("retained_mass must be in (0, 1]")
+        if not 1 <= min_beam <= beam_width:
+            raise ValueError("min_beam must be between 1 and beam_width")
+        self.retained_mass = retained_mass
+        self.min_beam = min_beam
+        self.pruning_diagnostics = {}
+        tracks = []
         for epoch,pri,epoch_sigma,pri_sigma in initial:
             if pri <= 0 or epoch_sigma <= 0 or pri_sigma <= 0:
                 raise ValueError("Positive PRI and prior sigmas required")
