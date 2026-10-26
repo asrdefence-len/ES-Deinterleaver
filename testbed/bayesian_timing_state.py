@@ -11,6 +11,7 @@ emitters. Pruning makes its uncertainty approximate.
 """
 from dataclasses import dataclass, replace
 import math
+from two_emitter_snr_baseline import toa_sigma
 
 
 def logsumexp(xs):
@@ -44,7 +45,10 @@ class BayesianTimingEstimator:
         self._last_toa = None
         self.count = 0
 
-    def process(self, toa_s):
+    def process(self, toa_s, snr_db=None):
+        # Backward compatible: without SNR, use the configured fixed sigma.
+        # With SNR, use the illustrative receiver noise model per PDW.
+        sigma = self.sigma if snr_db is None else toa_sigma(snr_db)
         if not math.isfinite(toa_s):
             raise ValueError("TOA must be finite")
         if self._last_toa is not None and toa_s <= self._last_toa:
@@ -53,7 +57,7 @@ class BayesianTimingEstimator:
             # Anchor epoch to the first detection with measurement uncertainty.
             self.hypotheses = [TimingHypothesis(
                 0, (toa_s, self.initial_pri_s),
-                (self.sigma**2, 0.0, self.pri_sigma_s**2), 0.0)]
+                (sigma**2, 0.0, self.pri_sigma_s**2), 0.0)]
         else:
             candidates = []
             for h in self.hypotheses:
@@ -64,7 +68,7 @@ class BayesianTimingEstimator:
                     n = h.index+k
                     # H=[1,n]. The innovation variance includes uncertainty
                     # in both epoch and PRI, and their cross-covariance.
-                    s = p00+2*n*p01+n*n*p11+self.sigma**2
+                    s = p00+2*n*p01+n*n*p11+sigma**2
                     if s <= 0:
                         continue
                     innovation = toa_s-(h.mean[0]+n*h.mean[1])
@@ -94,6 +98,7 @@ class BayesianTimingEstimator:
                                for h in kept]
         self._last_toa = toa_s
         self.count += 1
+        self.last_measurement_sigma_s = sigma
         return self.snapshot()
 
     def snapshot(self):
@@ -111,6 +116,7 @@ class BayesianTimingEstimator:
             "mixture_pri_sigma_s": math.sqrt(max(0.0, mixture_variance)),
             "mixture_hypotheses": len(self.hypotheses),
             "observations": self.count,
+            "last_measurement_sigma_s": self.last_measurement_sigma_s,
             "pri_s": h.mean[1],
             "epoch_s": h.mean[0],
             "pri_sigma_s": math.sqrt(h.covariance[2]),
