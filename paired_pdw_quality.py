@@ -16,6 +16,7 @@ def run_arm(pdws, initial, beam, threshold, quality_aware, fixed_sigma_s):
     brier=0.
     bins=[[0,0.,0.] for _ in range(10)]
     confidence_bins=[[0,0.,0.] for _ in range(10)]
+    truth_sequence=[]
     for toa,sigma,emitter,_ in pdws:
         used_sigma=sigma if quality_aware else fixed_sigma_s
         snap=tracker.process(toa,toa_sigma_s=used_sigma)
@@ -24,6 +25,7 @@ def run_arm(pdws, initial, beam, threshold, quality_aware, fixed_sigma_s):
         confidence=max(p,1-p)
         is_correct=int(prediction==emitter)
         n+=1
+        truth_sequence.append(emitter)
         correct+=is_correct
         brier+=(p-emitter)**2
         idx=min(9,int(p*10))
@@ -38,7 +40,13 @@ def run_arm(pdws, initial, beam, threshold, quality_aware, fixed_sigma_s):
             assigned+=1
             assigned_correct+=is_correct
             confident_wrong+=1-is_correct
+    final_labels=tracker.snapshot()["best_assignments"]
+    purity_counts=[[0,0],[0,0]]
+    for label,truth in zip(final_labels,truth_sequence):
+        purity_counts[label][truth]+=1
+    assert len(final_labels)==n
     return dict(n=n,correct=correct,assigned=assigned,
+                purity_counts=purity_counts,
                 assigned_correct=assigned_correct,confident_wrong=confident_wrong,
                 brier_sum=brier,bins=bins,confidence_bins=confidence_bins)
 
@@ -74,8 +82,16 @@ def aggregate(rows,arm):
           for i in range(10)]
     cbins=[[sum(r[arm]["confidence_bins"][i][k] for r in rows) for k in range(3)]
            for i in range(10)]
+    purity_counts=[[sum(r[arm]["purity_counts"][label][truth] for r in rows)
+                    for truth in range(2)] for label in range(2)]
+    purity=sum(max(row) for row in purity_counts)/total
     return dict(
         detected_pdws=total,
+        nrl_style_reporting_correct_fraction=sum(r[arm]["assigned_correct"] for r in rows)/total,
+        nrl_style_reporting_miscorrelated_fraction=wrong/total,
+        nrl_style_reporting_ambiguous_fraction=(total-assigned)/total,
+        final_map_track_purity=purity,
+        final_map_track_contingency=purity_counts,
         accuracy=sum(r[arm]["correct"] for r in rows)/total,
         brier=sum(r[arm]["brier_sum"] for r in rows)/total,
         assignment_coverage=assigned/total,
