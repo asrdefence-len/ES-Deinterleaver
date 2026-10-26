@@ -21,7 +21,7 @@ CROSS_INDEX = 22
 
 def trial(seed, scenario="very_close", count=COUNT, pd=.95,
           beam=32, epoch_sigma=1e-6, pri_sigma=.2e-6,
-          record_trace=False):
+          record_trace=False, retained_mass=None, min_beam=1):
     if scenario not in SCENARIOS or count < 3 or not 0 < pd <= 1:
         raise ValueError("Invalid scenario/count/Pd")
     delta = SCENARIOS[scenario]
@@ -42,7 +42,7 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
                 pri+prior_rng.gauss(0,pri_sigma),
                 epoch_sigma,pri_sigma)
                for epoch,pri in models]
-    tracker = JointTimingTracker(initial,beam_width=beam,max_skip=12)
+    tracker = JointTimingTracker(initial,beam_width=beam,max_skip=12,\n                                 retained_mass=retained_mass,min_beam=min_beam)
     oracle_models = [(epoch,pri,count) for epoch,pri in models]
     correct=oracle_correct=0
     brier=oracle_brier=0.
@@ -50,12 +50,12 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
     truth_alive=True
     first_pruned=None
     bins=[[0,0.,0.] for _ in range(10)]
-    trace=[]
+    trace=[]\n    retained_counts=[]\n    discarded_masses=[]
     assignment_truth=[]
     index_truth=[]
     for step,(toa,snr,emitter,n) in enumerate(obs):
         snapshot=tracker.process(toa,snr)
-        p=snapshot["association_probabilities"][1]
+        retained_counts.append(snapshot["retained_hypotheses"])\n        discarded_masses.append(snapshot["pruning_diagnostics"]["discarded_mass_before_renormalization"])\n        p=snapshot["association_probabilities"][1]
         op=association(toa,snr,oracle_models)[1]
         correct+=int((p>.5)==bool(emitter))
         oracle_correct+=int((op>.5)==bool(emitter))
@@ -85,20 +85,20 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
                 truth_history_retained=truth_alive,
                 first_truth_pruned=first_pruned,
                 pri_error_ns=[(best[j].pri-models[j][1])*1e9 for j in range(2)],
-                bins=bins,trace=trace)
+                mean_retained_hypotheses=sum(retained_counts)/len(retained_counts),\n                mean_discarded_mass=sum(discarded_masses)/len(discarded_masses),\n                bins=bins,trace=trace)
 
 
-def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32):
+def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32,\n               retained_mass=None,min_beam=1):
     if trials<1:
         raise ValueError("Positive trials required")
-    rows=[trial(19017+7919*i,scenario,count,pd,beam)
+    rows=[trial(19017+7919*i,scenario,count,pd,beam,\n                retained_mass=retained_mass,min_beam=min_beam)
           for i in range(trials)]
     total=sum(r["n"] for r in rows)
     bins=[[sum(r["bins"][j][k] for r in rows) for k in range(3)]
           for j in range(10)]
     return dict(scenario=scenario,pri_difference_ns=SCENARIOS[scenario]*1e9,
                 trials=trials,pd=pd,beam=beam,detected_pdws=total,
-                joint_accuracy=sum(r["accuracy"]*r["n"] for r in rows)/total,
+                mean_retained_hypotheses=sum(r["mean_retained_hypotheses"]*r["n"] for r in rows)/total,\n                mean_discarded_mass=sum(r["mean_discarded_mass"]*r["n"] for r in rows)/total,\n                joint_accuracy=sum(r["accuracy"]*r["n"] for r in rows)/total,
                 oracle_accuracy=sum(r["oracle_accuracy"]*r["n"] for r in rows)/total,
                 joint_brier=sum(r["brier"]*r["n"] for r in rows)/total,
                 oracle_brier=sum(r["oracle_brier"]*r["n"] for r in rows)/total,
@@ -122,19 +122,19 @@ def main():
     parser.add_argument("--count",type=int,default=COUNT)
     parser.add_argument("--pd",type=float,default=.95)
     parser.add_argument("--beam",type=int,default=32)
-    parser.add_argument("--trace",action="store_true",
+    parser.add_argument("--retained-mass",type=float,default=None)\n    parser.add_argument("--min-beam",type=int,default=1)\n    parser.add_argument("--trace",action="store_true",
                         help="Print per-PDW trace for first trial")
     args=parser.parse_args()
     scenarios=SCENARIOS if args.scenario=="all" else (args.scenario,)
     for scenario in scenarios:
         print("\nSCENARIO",scenario)
         for key,value in experiment(scenario,args.trials,args.count,
-                                    args.pd,args.beam).items():
+                                    args.pd,args.beam,args.retained_mass,args.min_beam).items():
             print(f"{key}: {value}")
         if args.trace:
             print("step,toa_s,snr_db,true_emitter,pulse_index,p_emitter_B,oracle_p_B,beam_count,truth_alive")
             for row in trial(19017,scenario,args.count,args.pd,args.beam,
-                             record_trace=True)["trace"]:
+                             record_trace=True,retained_mass=args.retained_mass,\n                             min_beam=args.min_beam)["trace"]:
                 print(",".join(map(str,row)))
 
 
