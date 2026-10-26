@@ -39,3 +39,28 @@ def test_experiment_forwards_detection_probability(monkeypatch):
     cps.experiment("very_close", trials=1, count=6, beam=8,
                    detection_probability=.7)
     assert seen == [.7]
+
+def test_joint_pd_penalizes_other_emitter_nondetection():
+    from testbed.joint_bayesian_timing import JointHypothesis
+    t=JointTimingTracker(INITIAL, beam_width=64, max_skip=2,
+                         joint_detection_probability=.7, joint_guard_s=0.)
+    t.process(0.,30.)
+    # The competing emitter has a predicted slot at 0.0003 s.
+    t.process(.0006,30.)
+    assert all(len(h.accounted_indices)==2 for h in t.hypotheses)
+    assert any(h.accounted_indices[1]>=0 for h in t.hypotheses)
+
+
+def test_joint_model_validation():
+    with pytest.raises(ValueError):
+        JointTimingTracker(INITIAL, joint_detection_probability=.7,
+                           detection_probability=.7)
+    with pytest.raises(ValueError):
+        JointTimingTracker(INITIAL, joint_detection_probability=0.)
+
+
+def test_joint_model_cli_experiment_smoke():
+    from crossing_pulse_stress import experiment
+    r=experiment("very_close",trials=1,count=6,beam=16,
+                 joint_detection_probability=.7)
+    assert 0 <= r["joint_accuracy"] <= 1
