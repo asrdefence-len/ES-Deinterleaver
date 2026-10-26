@@ -21,6 +21,9 @@ def generate(scenario):
         if pri <= 0 or float(e["pw_s"]) <= 0 or float(e["pw_s"]) >= pri:
             raise ValueError("Require 0 < pulse width < PRI")
         t = float(e.get("start_s", 0))
+        end = float(e.get("end_s", duration))
+        if not (0 <= t < end <= duration):
+            raise ValueError("Require 0 <= emitter start < end <= duration")
         # Optional piecewise PRI schedule. At each pulse TOA, use the PRI
         # active at that time for the interval until the next transmission.
         schedule = e.get("pri_schedule", [])
@@ -32,7 +35,7 @@ def generate(scenario):
         if any(float(item["pri_s"]) <= float(e["pw_s"]) for item in schedule):
             raise ValueError("Scheduled PRI must exceed pulse width")
         schedule_index = 0
-        while t < duration:
+        while t < end:
             while (schedule_index < len(schedule)
                    and t >= float(schedule[schedule_index]["start_s"]) - 1e-12):
                 pri = float(schedule[schedule_index]["pri_s"])
