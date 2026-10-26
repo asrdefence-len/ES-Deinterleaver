@@ -46,10 +46,27 @@ class StreamingDeinterleaver:
         self.bootstrapped = False
 
     @staticmethod
-    def _epoch(times, pri):
+    def _fit_timing(times, initial_pri):
+        """Refine PRI and epoch from pulse indices; resist occasional outliers.
+
+        A 30 ns PRI bias accumulates to 30 us after 1000 repetitions and
+        breaks a 0.5 us association gate. Fit slope, not only phase.
+        """
+        times = np.asarray(times, dtype=float)
         origin = float(times[0])
-        slots = np.rint((times - origin) / pri)
-        return float(np.median(times - slots * pri))
+        slots = np.rint((times - origin) / initial_pri)
+        good = np.ones(len(times), dtype=bool)
+        for _ in range(4):
+            if np.count_nonzero(good) < 3:
+                break
+            slope, intercept = np.polyfit(slots[good], times[good], 1)
+            residual = np.abs(times - (intercept + slots * slope))
+            new_good = residual <= 0.5e-6
+            if np.count_nonzero(new_good) < 3 or np.array_equal(new_good, good):
+                break
+            good = new_good
+        slope, intercept = np.polyfit(slots[good], times[good], 1)
+        return float(intercept), float(slope)
 
     def _bootstrap(self):
         finder = PhaseFoldingDeinterleaver(min_track_pdws=40)
@@ -59,18 +76,30 @@ class StreamingDeinterleaver:
             observations = [by_id[i] for i in t.associated_pdw_ids]
             if not observations:
                 continue
-            pri = t.pri_model.mean_s
-            epoch = self._epoch(np.array([p.toa_s for p in observations]), pri)
+            epoch, pri = self._fit_timing(
+                [p.toa_s for p in observations], t.pri_model.mean_s)
             self.tracks[t.track_id] = StreamTrack(
                 t.track_id, pri, epoch,
                 float(np.median([p.frequency_hz for p in observations])),
                 float(np.median([p.aoa_deg for p in observations])),
                 float(np.median([p.pulse_width_s for p in observations])),
                 observations[-1].toa_s)
-        # Revisit bootstrap observations using the same conservative association
-        # logic as future streaming observations.
+        # Seed with phase-folding assignments, preserving its strong batch
+        # solution. New observations use conservative predictive association.
         for p in self._buffer:
-            self._associate(p)
+            track_id = initial.get(p.pdw_id)
+            if track_id not in self.tracks:
+                self.unexplained_pdw_ids.append(p.pdw_id)
+                continue
+            t = self.tracks[track_id]
+            slot = round((p.toa_s - t.epoch_s) / t.pri_s)
+            if slot <= t.last_slot:
+                self.unexplained_pdw_ids.append(p.pdw_id)
+                continue
+            self.assignments[p.pdw_id] = track_id
+            t.pdw_ids.append(p.pdw_id)
+            t.last_slot = slot
+            t.last_toa_s = p.toa_s
         self._buffer.clear()
         self.bootstrapped = True
 
