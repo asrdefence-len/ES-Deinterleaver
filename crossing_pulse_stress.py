@@ -21,7 +21,8 @@ CROSS_INDEX = 22
 
 def trial(seed, scenario="very_close", count=COUNT, pd=.95,
           beam=32, epoch_sigma=1e-6, pri_sigma=.2e-6,
-          record_trace=False, retained_mass=None, min_beam=1,\n          detection_probability=None):
+          record_trace=False, retained_mass=None, min_beam=1,
+          detection_probability=None):
     if scenario not in SCENARIOS or count < 3 or not 0 < pd <= 1:
         raise ValueError("Invalid scenario/count/Pd")
     delta = SCENARIOS[scenario]
@@ -43,7 +44,8 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
                 epoch_sigma,pri_sigma)
                for epoch,pri in models]
     tracker = JointTimingTracker(initial,beam_width=beam,max_skip=12,
-                                 retained_mass=retained_mass,min_beam=min_beam,\n                                 detection_probability=detection_probability)
+                                 retained_mass=retained_mass,min_beam=min_beam,
+                                 detection_probability=detection_probability)
     oracle_models = [(epoch,pri,count) for epoch,pri in models]
     correct=oracle_correct=0
     brier=oracle_brier=0.
@@ -134,7 +136,8 @@ def main():
     parser.add_argument("--pd",type=float,default=.95)
     parser.add_argument("--beam",type=int,default=32)
     parser.add_argument("--retained-mass",type=float,default=None)
-    parser.add_argument("--min-beam",type=int,default=1)\n    parser.add_argument("--detection-probability",type=float,default=None)
+    parser.add_argument("--min-beam",type=int,default=1)
+    parser.add_argument("--detection-probability",type=float,default=None)
     parser.add_argument("--trace",action="store_true",
                         help="Print per-PDW trace for first trial")
     args=parser.parse_args()
@@ -142,13 +145,15 @@ def main():
     for scenario in scenarios:
         print("\nSCENARIO",scenario)
         for key,value in experiment(scenario,args.trials,args.count,
-                                    args.pd,args.beam,args.retained_mass,args.min_beam,\n                                    args.detection_probability).items():
+                                    args.pd,args.beam,args.retained_mass,args.min_beam,
+                                    args.detection_probability).items():
             print(f"{key}: {value}")
         if args.trace:
             print("step,toa_s,snr_db,true_emitter,pulse_index,p_emitter_B,oracle_p_B,beam_count,truth_alive")
             for row in trial(19017,scenario,args.count,args.pd,args.beam,
                              record_trace=True,retained_mass=args.retained_mass,
-                             min_beam=args.min_beam,\n                             detection_probability=args.detection_probability)["trace"]:
+                             min_beam=args.min_beam,
+                             detection_probability=args.detection_probability)["trace"]:
                 print(",".join(map(str,row)))
 
 
