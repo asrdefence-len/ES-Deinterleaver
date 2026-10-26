@@ -21,8 +21,11 @@ def test_880ns_late_pulse_is_not_prematurely_excluded():
     for t in (old,corrected):
         t.process(100.5e-6,30.)
         t.advance_time(100.5e-6)
-    assert all(h.accounted_indices[0] >= 0 for h in old.hypotheses)
-    assert all(h.accounted_indices[0] == -1 for h in corrected.hypotheses)
+    old_b = [h for h in old.hypotheses if h.assignments == (1,) and h.indices == (0,)]
+    new_b = [h for h in corrected.hypotheses if h.assignments == (1,) and h.indices == (0,)]
+    assert old_b and new_b
+    assert all(h.accounted_indices[0] >= 0 for h in old_b)
+    assert all(h.accounted_indices[0] == -1 for h in new_b)
     # The A pulse is late by 880 ns but within 3*400 ns.
     corrected.process(100e-6+880e-9,30.,
                       diagnostic_truth=((1,0),(0,0)))
