@@ -37,6 +37,7 @@ def run(scenario_path="scenarios/pri_mode_change.json", window_s=0.05):
                 upstream_unassigned.add(p.pdw_id)
             else:
                 grouped[train_id].append(p)
+        window_observations = []
         for train_id, members in sorted(grouped.items()):
             members.sort(key=lambda p: p.toa_s)
             track = upstream.tracks[train_id]
@@ -55,10 +56,17 @@ def run(scenario_path="scenarios/pri_mode_change.json", window_s=0.05):
                 pulse_count=len(members),
                 pdw_ids=tuple(p.pdw_id for p in members),
             )
+            window_observations.append(obs)
+        # Different trains start at different times within a reporting window.
+        # The downstream tracker requires chronological observations, not
+        # lexicographically sorted train IDs (T1, T2, T3).
+        for obs in sorted(window_observations,
+                          key=lambda item: (item.start_toa_s, item.train_id)):
             observations.append(obs)
             emitter_id = downstream.process(obs)
             if emitter_id is not None:
-                assignment_to_emitter.update((p.pdw_id, emitter_id) for p in members)
+                assignment_to_emitter.update((pdw_id, emitter_id)
+                                             for pdw_id in obs.pdw_ids)
 
     # The 600-PDW bootstrap may span several reporting windows. We do not
     # emit any window until bootstrap has resolved its buffered assignments.
