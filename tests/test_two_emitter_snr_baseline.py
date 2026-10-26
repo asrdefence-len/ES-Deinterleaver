@@ -13,7 +13,8 @@ def test_probabilities_normalize():
 
 
 def test_high_snr_discriminates_more():
-    models = [(0., .001, 80), (.00012, .00075, 80)]
+    # Use close predictions; widely separated pulses saturate to P=1.
+    models = [(0., .001, 80), (300e-9, .001, 80)]
     assert association(.001, 35, models)[0] > association(.001, 0, models)[0]
 
 
