@@ -151,7 +151,31 @@ class JointTimingTracker:
         r = toa_sigma(snr_db)**2
         branches = []
         truth_branch_details = [] if diagnostic_truth is not None else None
+        truth_parent_details = [] if diagnostic_truth is not None else None
+        if diagnostic_truth is not None:
+            expected_assignments, expected_indices = map(tuple, diagnostic_truth)
+            if not expected_assignments or len(expected_assignments) != len(expected_indices):
+                raise ValueError("diagnostic_truth requires nonempty equal-length histories")
         for hypothesis in self.hypotheses:
+            if truth_parent_details is not None:
+                parent_a, parent_n = history_tuples(hypothesis.history)
+                if parent_a == expected_assignments[:-1] and parent_n == expected_indices[:-1]:
+                    e, true_n = expected_assignments[-1], expected_indices[-1]
+                    track_true = hypothesis.tracks[e]
+                    start_n = (hypothesis.accounted_indices[e]+1
+                               if (self.joint_detection_probability is not None or
+                                   self.observation_detection_probability is not None)
+                               else track_true.index+1)
+                    truth_parent_details.append({
+                        "parent_weight": math.exp(hypothesis.log_weight),
+                        "true_emitter": e, "true_index": true_n,
+                        "last_detected_index": track_true.index,
+                        "accounted_index": hypothesis.accounted_indices[e],
+                        "next_permitted_index": start_n,
+                        "already_accounted": true_n < start_n,
+                        "beyond_skip_window": true_n >= start_n+self.max_skip,
+                        "predicted_toa_s": track_true.epoch+true_n*track_true.pri,
+                    })
             for emitter, track in enumerate(hypothesis.tracks):
                 # Prior on the next integer index: uniform among allowed
                 # skips. This is a deliberately simple conditional model,
@@ -252,6 +276,14 @@ class JointTimingTracker:
                 "rank_before_pruning": truth_rank,
                 "posterior_mass_before_pruning": truth_weight,
                 "branch_terms": truth_branch_details,
+                "matching_parent_count": len(truth_parent_details),
+                "matching_parents": truth_parent_details[:3],
+                "absence_reason": (
+                    "generated" if truth_rank is not None else
+                    "no_correct_parent" if not truth_parent_details else
+                    "already_accounted" if all(p["already_accounted"] for p in truth_parent_details) else
+                    "beyond_skip_window" if all(p["beyond_skip_window"] for p in truth_parent_details) else
+                    "branch_not_generated_other_reason"),
                 "candidate_count": len(branches),
             }
         capped = branches[:self.beam_width]
