@@ -93,7 +93,8 @@ def update(track, toa, n, measurement_variance):
 class JointTimingTracker:
     def __init__(self, initial, beam_width=64, max_skip=12,
                  retained_mass=None, min_beam=1, detection_probability=None,
-                 joint_detection_probability=None, joint_guard_s=5e-6):
+                 joint_detection_probability=None, joint_guard_s=5e-6,
+                 observation_detection_probability=None, deadline_sigmas=3.):
         """initial: two (epoch,PRI,epoch_sigma,PRI_sigma) tuples.
 
         Epoch and PRI prior covariance initially assumed zero.
@@ -112,6 +113,16 @@ class JointTimingTracker:
             raise ValueError('Choose either conditional or joint detection model')
         if joint_guard_s < 0 or not math.isfinite(joint_guard_s):
             raise ValueError('joint_guard_s must be finite and nonnegative')
+        if observation_detection_probability is not None:
+            if not 0 < observation_detection_probability < 1:
+                raise ValueError("observation_detection_probability must be in (0,1)")
+            if joint_detection_probability is not None or detection_probability is not None:
+                raise ValueError("Observation model is mutually exclusive with legacy detection models")
+        if not math.isfinite(deadline_sigmas) or deadline_sigmas < 0:
+            raise ValueError("deadline_sigmas must be finite and nonnegative")
+        self.observation_detection_probability = observation_detection_probability
+        self.deadline_sigmas = deadline_sigmas
+        self.observation_watermark = None
         self.joint_detection_probability = joint_detection_probability
         self.joint_guard_s = joint_guard_s
         self.detection_probability = detection_probability
@@ -133,6 +144,8 @@ class JointTimingTracker:
             raise ValueError("TOA must be finite")
         if self.last_toa is not None and toa_s <= self.last_toa:
             raise ValueError("TOAs must increase")
+        if self.observation_watermark is not None and toa_s <= self.observation_watermark:
+            raise ValueError("PDW is not later than the committed observation watermark")
         r = toa_sigma(snr_db)**2
         branches = []
         for hypothesis in self.hypotheses:
@@ -141,7 +154,8 @@ class JointTimingTracker:
                 # skips. This is a deliberately simple conditional model,
                 # not a receiver Pd or missed-detection model.
                 start = (hypothesis.accounted_indices[emitter]+1
-                         if self.joint_detection_probability is not None
+                         if (self.joint_detection_probability is not None or
+                             self.observation_detection_probability is not None)
                          else track.index+1)
                 for n in range(start,start+self.max_skip):
                     if self.detection_probability == 1. and n > start:
@@ -153,7 +167,19 @@ class JointTimingTracker:
                     tracks = list(hypothesis.tracks)
                     tracks[emitter] = updated
                     accounted = hypothesis.accounted_indices
-                    if self.joint_detection_probability is not None:
+                    if self.observation_detection_probability is not None:
+                        # Every intervening slot on this emitter is a miss.
+                        # Slots already declared missed by advance_time() are
+                        # excluded by the accounted-index start bound.
+                        pd = self.observation_detection_probability
+                        missed = n-accounted[emitter]-1
+                        skip_log_prior = math.log(pd)
+                        if missed:
+                            skip_log_prior += missed*math.log1p(-pd)
+                        next_accounted = list(accounted)
+                        next_accounted[emitter] = n
+                        accounted = tuple(next_accounted)
+                    elif self.joint_detection_probability is not None:
                         pd = self.joint_detection_probability
                         other = 1-emitter
                         other_track = hypothesis.tracks[other]
@@ -218,6 +244,55 @@ class JointTimingTracker:
         self.hypotheses = [replace(h,log_weight=h.log_weight-norm)
                            for h in kept]
         self.last_toa = toa_s
+        return self.snapshot()
+
+    def advance_time(self, watermark_s):
+        """Commit nondetections up to a time watermark (experimental Stage A).
+
+        Caller must first deliver ALL PDWs with TOA <= watermark_s. For each
+        hypothesis and emitter, the next unaccounted pulse slot is declared
+        missed only when its predicted mean TOA plus deadline_sigmas times
+        its timing-state standard deviation is strictly before watermark_s.
+        Each slot is penalised once via accounted_indices. A PDW with TOA
+        <= the committed watermark is subsequently rejected.
+
+        This is a hard Gaussian deadline approximation, not an integrated
+        arrival-time/receiver likelihood. It assumes constant independent Pd,
+        ideal pulse resolution, and no mode changes or clutter. The deadline
+        is calculated using the current posterior state, not a smoothed
+        historical state. Hypotheses can therefore have different deadlines.
+        """
+        pd = self.observation_detection_probability
+        if pd is None:
+            raise ValueError("Observation-time model is not enabled")
+        if not math.isfinite(watermark_s):
+            raise ValueError("Watermark must be finite")
+        if self.observation_watermark is not None and watermark_s < self.observation_watermark:
+            raise ValueError("Watermark cannot move backwards")
+        if self.last_toa is not None and watermark_s < self.last_toa:
+            raise ValueError("Watermark cannot precede the latest PDW")
+        updated = []
+        for h in self.hypotheses:
+            accounted = list(h.accounted_indices)
+            missed = 0
+            for emitter, track in enumerate(h.tracks):
+                n = accounted[emitter]+1
+                while track.epoch+n*track.pri <= watermark_s:
+                    variance = max(0., track.p00+2*n*track.p01+n*n*track.p11)
+                    deadline = (track.epoch+n*track.pri+
+                                self.deadline_sigmas*math.sqrt(variance))
+                    if deadline >= watermark_s:
+                        break
+                    missed += 1
+                    accounted[emitter] = n
+                    n += 1
+            updated.append(replace(h,accounted_indices=tuple(accounted),
+                                   log_weight=h.log_weight+
+                                   missed*math.log1p(-pd)))
+        normalizer = logsumexp([h.log_weight for h in updated])
+        self.hypotheses = [replace(h,log_weight=h.log_weight-normalizer)
+                           for h in updated]
+        self.observation_watermark = watermark_s
         return self.snapshot()
 
     def snapshot(self):
