@@ -84,7 +84,7 @@ def aggregate(rows,arm):
            for i in range(10)]
     purity_counts=[[sum(r[arm]["purity_counts"][label][truth] for r in rows)
                     for truth in range(2)] for label in range(2)]
-    purity=sum(max(row) for row in purity_counts)/total
+    purity=sum(sum(max(row) for row in r[arm]["purity_counts"]) for r in rows)/total
     return dict(
         detected_pdws=total,
         nrl_style_reporting_correct_fraction=sum(r[arm]["assigned_correct"] for r in rows)/total,
