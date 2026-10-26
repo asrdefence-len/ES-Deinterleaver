@@ -142,7 +142,28 @@ class JointTimingTracker:
         if not branches:
             raise RuntimeError("No viable association hypotheses")
         branches.sort(key=lambda h:h.log_weight,reverse=True)
-        kept = branches[:self.beam_width]
+        capped = branches[:self.beam_width]
+        full_norm = logsumexp([h.log_weight for h in branches])
+        cap_norm = logsumexp([h.log_weight for h in capped])
+        kept = capped
+        if self.retained_mass is not None:
+            cumulative = 0.
+            count = 0
+            for h in capped:
+                cumulative += math.exp(h.log_weight-cap_norm)
+                count += 1
+                if count >= self.min_beam and cumulative >= self.retained_mass-1e-12:
+                    break
+            kept = capped[:count]
+        retained_fraction = math.exp(
+            logsumexp([h.log_weight for h in kept])-full_norm)
+        self.pruning_diagnostics = {
+            "candidate_count": len(branches),
+            "cap_mass_before_renormalization": math.exp(cap_norm-full_norm),
+            "retained_mass_before_renormalization": retained_fraction,
+            "discarded_mass_before_renormalization": max(0.,1.-retained_fraction),
+            "adaptive_count": len(kept),
+        }
         norm = logsumexp([h.log_weight for h in kept])
         self.hypotheses = [replace(h,log_weight=h.log_weight-norm)
                            for h in kept]
@@ -157,6 +178,8 @@ class JointTimingTracker:
             for emitter in range(2))
         best = self.hypotheses[0]
         return {
+            "effective_hypothesis_count": 1./sum(w*w for w in weights),
+            "pruning_diagnostics": dict(self.pruning_diagnostics),
             "association_probabilities":association,
             "best_assignments":best.assignments,
             "best_pulse_indices":best.indices,
