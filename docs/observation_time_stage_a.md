@@ -142,3 +142,25 @@ python crossing_pulse_stress.py --scenario very_close --trials 20 --pd .7 --beam
 
 Repeat for deadline sigmas 1, 2, 4 and 5. These are exploratory
 comparisons; no improvement or calibration claim is made.
+
+
+## Absent-branch root cause diagnostic
+
+The truth diagnostic now also reports `matching_parent_count`,
+`matching_parents` (up to three), and `absence_reason`:
+`no_correct_parent`, `already_accounted`, `beyond_skip_window`,
+`branch_not_generated_other_reason`, or `generated`.
+Matching-parent records include true and accounted indices, next allowed
+index, last detected index, predicted TOA and parent posterior weight.
+
+**Interpretation caveat:** `no_correct_parent` means the correct history
+was already missing before this PDW, not necessarily that it was removed
+by the immediately preceding watermark. `already_accounted` indicates
+the index constraint excludes the true pulse in every matching parent.
+No likelihood-model correction has yet been made.
+
+Run:
+```bash
+python -m pytest -q
+python crossing_pulse_stress.py --scenario very_close --trials 20 --pd .70 --beam 128 --observation-detection-probability .70 --deadline-sigmas 3 --diagnose-truth
+```
