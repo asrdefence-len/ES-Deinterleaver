@@ -24,7 +24,7 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
           record_trace=False, retained_mass=None, min_beam=1,
           detection_probability=None, joint_detection_probability=None,
           observation_detection_probability=None, deadline_sigmas=3.,
-          silent_window=None,diagnose_truth=False):
+          silent_window=None,diagnose_truth=False,expected_toa_sigma_s=0.):
     if scenario not in SCENARIOS or count < 3 or not 0 < pd <= 1:
         raise ValueError("Invalid scenario/count/Pd")
     delta = SCENARIOS[scenario]
@@ -59,7 +59,8 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
                                  detection_probability=detection_probability,
                                  joint_detection_probability=joint_detection_probability,
                                  observation_detection_probability=observation_detection_probability,
-                                 deadline_sigmas=deadline_sigmas)
+                                 deadline_sigmas=deadline_sigmas,
+                                 expected_toa_sigma_s=expected_toa_sigma_s)
     oracle_models = [(epoch,pri,count) for epoch,pri in models]
     correct=oracle_correct=0
     brier=oracle_brier=0.
@@ -139,7 +140,8 @@ def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32,
                 joint_detection_probability=joint_detection_probability,
                 observation_detection_probability=observation_detection_probability,
                 deadline_sigmas=deadline_sigmas,silent_window=silent_window,
-                diagnose_truth=diagnose_truth)
+                diagnose_truth=diagnose_truth,
+                expected_toa_sigma_s=expected_toa_sigma_s)
           for i in range(trials)]
     total=sum(r["n"] for r in rows)
     bins=[[sum(r["bins"][j][k] for r in rows) for k in range(3)]
@@ -181,6 +183,8 @@ def main():
     parser.add_argument("--joint-detection-probability",type=float,default=None)
     parser.add_argument("--observation-detection-probability",type=float,default=None)
     parser.add_argument("--deadline-sigmas",type=float,default=3.)
+    parser.add_argument("--expected-toa-sigma-ns",type=float,default=0.,
+                        help="Assumed receiver TOA noise sigma for nondetection deadline, ns; 0 reproduces legacy")
     parser.add_argument("--silent-start-ms",type=float,default=None)
     parser.add_argument("--silent-stop-ms",type=float,default=None)
     parser.add_argument("--diagnose-truth",action="store_true")
@@ -199,7 +203,8 @@ def main():
                                     args.joint_detection_probability,
                                     args.observation_detection_probability,
                                     args.deadline_sigmas,silent_window,
-                                    args.diagnose_truth).items():
+                                    args.diagnose_truth,
+                                    args.expected_toa_sigma_ns*1e-9).items():
             print(f"{key}: {value}")
         if args.trace:
             print("step,toa_s,snr_db,true_emitter,pulse_index,p_emitter_B,oracle_p_B,beam_count,truth_alive")
@@ -211,7 +216,8 @@ def main():
                              observation_detection_probability=args.observation_detection_probability,
                              deadline_sigmas=args.deadline_sigmas,
                              silent_window=silent_window,
-                             diagnose_truth=args.diagnose_truth)["trace"]:
+                             diagnose_truth=args.diagnose_truth,
+                             expected_toa_sigma_s=args.expected_toa_sigma_ns*1e-9)["trace"]:
                 print(",".join(map(str,row)))
 
 
