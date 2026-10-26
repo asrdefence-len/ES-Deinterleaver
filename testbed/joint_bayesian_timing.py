@@ -48,6 +48,7 @@ class JointHypothesis:
     tracks: tuple
     history: object = None
     log_weight: float = 0.
+    accounted_indices: tuple = (-1, -1)
 
     @property
     def assignments(self):
@@ -91,7 +92,8 @@ def update(track, toa, n, measurement_variance):
 
 class JointTimingTracker:
     def __init__(self, initial, beam_width=64, max_skip=12,
-                 retained_mass=None, min_beam=1, detection_probability=None):
+                 retained_mass=None, min_beam=1, detection_probability=None,
+                 joint_detection_probability=None, joint_guard_s=5e-6):
         """initial: two (epoch,PRI,epoch_sigma,PRI_sigma) tuples.
 
         Epoch and PRI prior covariance initially assumed zero.
@@ -104,6 +106,14 @@ class JointTimingTracker:
             raise ValueError("min_beam must be between 1 and beam_width")
         if detection_probability is not None and not 0 < detection_probability <= 1:
             raise ValueError("detection_probability must be in (0, 1]")
+        if joint_detection_probability is not None and not 0 < joint_detection_probability <= 1:
+            raise ValueError('joint_detection_probability must be in (0, 1]')
+        if joint_detection_probability is not None and detection_probability is not None:
+            raise ValueError('Choose either conditional or joint detection model')
+        if joint_guard_s < 0 or not math.isfinite(joint_guard_s):
+            raise ValueError('joint_guard_s must be finite and nonnegative')
+        self.joint_detection_probability = joint_detection_probability
+        self.joint_guard_s = joint_guard_s
         self.detection_probability = detection_probability
         self.retained_mass = retained_mass
         self.min_beam = min_beam
@@ -130,7 +140,9 @@ class JointTimingTracker:
                 # Prior on the next integer index: uniform among allowed
                 # skips. This is a deliberately simple conditional model,
                 # not a receiver Pd or missed-detection model.
-                start = track.index+1
+                start = (hypothesis.accounted_indices[emitter]+1
+                         if self.joint_detection_probability is not None
+                         else track.index+1)
                 for n in range(start,start+self.max_skip):
                     if self.detection_probability == 1. and n > start:
                         continue
@@ -140,7 +152,30 @@ class JointTimingTracker:
                     updated,ll = outcome
                     tracks = list(hypothesis.tracks)
                     tracks[emitter] = updated
-                    if self.detection_probability is None:
+                    accounted = hypothesis.accounted_indices
+                    if self.joint_detection_probability is not None:
+                        pd = self.joint_detection_probability
+                        other = 1-emitter
+                        other_track = hypothesis.tracks[other]
+                        cutoff = toa_s-self.joint_guard_s
+                        # Account only for other-emitter slots safely before
+                        # this observation; defer near-simultaneous slots.
+                        due = math.ceil((cutoff-other_track.epoch)/other_track.pri)-1
+                        other_accounted = max(accounted[other],due)
+                        missed = (n-accounted[emitter]-1
+                                  +other_accounted-accounted[other])
+                        if missed < 0:
+                            continue
+                        skip_log_prior = math.log(pd)
+                        if missed:
+                            if pd == 1.:
+                                continue
+                            skip_log_prior += missed*math.log1p(-pd)
+                        next_accounted = list(accounted)
+                        next_accounted[emitter] = n
+                        next_accounted[other] = other_accounted
+                        accounted = tuple(next_accounted)
+                    elif self.detection_probability is None:
                         skip_log_prior = -math.log(2*self.max_skip)
                     elif self.detection_probability == 1.:
                         skip_log_prior = -math.log(2.)
@@ -152,7 +187,8 @@ class JointTimingTracker:
                     branches.append(JointHypothesis(
                         tuple(tracks),
                         HistoryNode(hypothesis.history,emitter,n),
-                        hypothesis.log_weight+ll+skip_log_prior))
+                        hypothesis.log_weight+ll+skip_log_prior,
+                        accounted))
         if not branches:
             raise RuntimeError("No viable association hypotheses")
         branches.sort(key=lambda h:h.log_weight,reverse=True)
@@ -200,5 +236,5 @@ class JointTimingTracker:
             "best_tracks":best.tracks,
             "best_weight":weights[0],
             "retained_hypotheses":len(self.hypotheses),
-            "warning":"Beam-truncated posterior; no clutter, births, or explicit Pd",
+            "warning":"Beam-truncated posterior; no clutter, births, collisions; joint Pd uses deterministic slot times and a guard interval",
         }
