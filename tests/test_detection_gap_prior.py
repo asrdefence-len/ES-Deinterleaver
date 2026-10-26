@@ -25,3 +25,17 @@ def test_invalid_detection_probability():
     for value in (0.,-0.1,1.1,float("nan")):
         with pytest.raises(ValueError):
             JointTimingTracker(INITIAL,detection_probability=value)
+
+def test_experiment_forwards_detection_probability(monkeypatch):
+    import crossing_pulse_stress as cps
+    seen = []
+    original = cps.trial
+
+    def recording_trial(*args, **kwargs):
+        seen.append(kwargs.get("detection_probability"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cps, "trial", recording_trial)
+    cps.experiment("very_close", trials=1, count=6, beam=8,
+                   detection_probability=.7)
+    assert seen == [.7]
