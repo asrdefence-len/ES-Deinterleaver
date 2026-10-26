@@ -30,7 +30,9 @@ def association(toa, snr_db, models, prior=(.5, .5)):
         epoch, pri, count = model
         if pri <= 0 or count < 1:
             raise ValueError("Invalid pulse model")
-        center = round((toa-epoch)/pri)
+        # Clamp to valid slots: a pulse may fall outside another emitter's
+        # finite observation window. Its likelihood is small, not undefined.
+        center = max(0, min(count-1, round((toa-epoch)/pri)))
         # Local summation is accurate when timing uncertainty << PRI.
         slots = range(max(0, center-3), min(count-1, center+3)+1)
         terms = [-0.5*((toa-epoch-n*pri)/sigma)**2
