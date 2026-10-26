@@ -66,7 +66,7 @@ def pri_evidence(observation, previous_pri=None):
                                            for i, v in enumerate(values)])
             contrast = statistics.pstdev(pattern)
             if contrast > 3 * sigma:
-                score = -0.5 * (residual / sigma) ** 2 - 0.55 * length
+                score = -0.5 * (residual / sigma) ** 2 - 0.30 * length
                 stagger = max(stagger, score)
     return (constant, changed, jitter, stagger)
 
