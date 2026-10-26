@@ -98,7 +98,18 @@ class BayesianTimingEstimator:
 
     def snapshot(self):
         h = max(self.hypotheses, key=lambda h: h.log_weight)
+        # Mixture moments include between-hypothesis PRI ambiguity.
+        weights = [math.exp(v.log_weight) for v in self.hypotheses]
+        total = sum(weights)
+        weights = [w / total for w in weights]
+        mixture_pri = sum(w*v.mean[1] for w, v in zip(weights, self.hypotheses))
+        mixture_variance = sum(
+            w*(v.covariance[2]+(v.mean[1]-mixture_pri)**2)
+            for w, v in zip(weights, self.hypotheses))
         return {
+            "mixture_pri_s": mixture_pri,
+            "mixture_pri_sigma_s": math.sqrt(max(0.0, mixture_variance)),
+            "mixture_hypotheses": len(self.hypotheses),
             "observations": self.count,
             "pri_s": h.mean[1],
             "epoch_s": h.mean[0],
