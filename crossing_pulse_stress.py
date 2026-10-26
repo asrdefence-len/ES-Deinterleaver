@@ -102,7 +102,8 @@ def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32,
     if trials<1:
         raise ValueError("Positive trials required")
     rows=[trial(19017+7919*i,scenario,count,pd,beam,
-                retained_mass=retained_mass,min_beam=min_beam)
+                retained_mass=retained_mass,min_beam=min_beam,
+                detection_probability=detection_probability)
           for i in range(trials)]
     total=sum(r["n"] for r in rows)
     bins=[[sum(r["bins"][j][k] for r in rows) for k in range(3)]
