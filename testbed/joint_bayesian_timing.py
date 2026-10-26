@@ -145,14 +145,21 @@ class JointTimingTracker:
         self.last_toa = None
         self.truth_diagnostic = None
 
-    def process(self, toa_s, snr_db, diagnostic_truth=None):
+    def process(self, toa_s, snr_db=None, diagnostic_truth=None, toa_sigma_s=None):
         if not math.isfinite(toa_s):
             raise ValueError("TOA must be finite")
         if self.last_toa is not None and toa_s <= self.last_toa:
             raise ValueError("TOAs must increase")
         if self.observation_watermark is not None and toa_s <= self.observation_watermark:
             raise ValueError("PDW is not later than the committed observation watermark")
-        r = toa_sigma(snr_db)**2
+        if toa_sigma_s is not None:
+            if not math.isfinite(toa_sigma_s) or toa_sigma_s <= 0:
+                raise ValueError("toa_sigma_s must be finite and positive")
+            r = toa_sigma_s**2
+        else:
+            if snr_db is None:
+                raise ValueError("Provide either toa_sigma_s or legacy snr_db")
+            r = toa_sigma(snr_db)**2
         branches = []
         truth_branch_details = [] if diagnostic_truth is not None else None
         truth_parent_details = [] if diagnostic_truth is not None else None
