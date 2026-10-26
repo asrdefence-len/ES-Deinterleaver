@@ -95,7 +95,8 @@ class JointTimingTracker:
     def __init__(self, initial, beam_width=64, max_skip=12,
                  retained_mass=None, min_beam=1, detection_probability=None,
                  joint_detection_probability=None, joint_guard_s=5e-6,
-                 observation_detection_probability=None, deadline_sigmas=3.):
+                 observation_detection_probability=None, deadline_sigmas=3.,
+                 expected_toa_sigma_s=0.):
         """initial: two (epoch,PRI,epoch_sigma,PRI_sigma) tuples.
 
         Epoch and PRI prior covariance initially assumed zero.
@@ -121,6 +122,9 @@ class JointTimingTracker:
                 raise ValueError("Observation model is mutually exclusive with legacy detection models")
         if not math.isfinite(deadline_sigmas) or deadline_sigmas < 0:
             raise ValueError("deadline_sigmas must be finite and nonnegative")
+        if not math.isfinite(expected_toa_sigma_s) or expected_toa_sigma_s < 0:
+            raise ValueError("expected_toa_sigma_s must be finite and nonnegative")
+        self.expected_toa_sigma_s = expected_toa_sigma_s
         self.observation_detection_probability = observation_detection_probability
         self.deadline_sigmas = deadline_sigmas
         self.observation_watermark = None
@@ -320,7 +324,7 @@ class JointTimingTracker:
         Caller must first deliver ALL PDWs with TOA <= watermark_s. For each
         hypothesis and emitter, the next unaccounted pulse slot is declared
         missed only when its predicted mean TOA plus deadline_sigmas times
-        its timing-state standard deviation is strictly before watermark_s.
+        its predictive observation standard deviation is strictly before watermark_s.
         Each slot is penalised once via accounted_indices. A PDW with TOA
         <= the committed watermark is subsequently rejected.
 
@@ -329,6 +333,8 @@ class JointTimingTracker:
         ideal pulse resolution, and no mode changes or clutter. The deadline
         is calculated using the current posterior state, not a smoothed
         historical state. Hypotheses can therefore have different deadlines.
+        expected_toa_sigma_s adds assumed receiver TOA noise in quadrature;
+        zero retains legacy state-only deadline behavior.
         """
         pd = self.observation_detection_probability
         if pd is None:
@@ -346,7 +352,8 @@ class JointTimingTracker:
             for emitter, track in enumerate(h.tracks):
                 n = accounted[emitter]+1
                 while track.epoch+n*track.pri <= watermark_s:
-                    variance = max(0., track.p00+2*n*track.p01+n*n*track.p11)
+                    variance = (max(0., track.p00+2*n*track.p01+n*n*track.p11)
+                                +self.expected_toa_sigma_s**2)
                     deadline = (track.epoch+n*track.pri+
                                 self.deadline_sigmas*math.sqrt(variance))
                     if deadline >= watermark_s:
