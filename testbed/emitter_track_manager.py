@@ -51,7 +51,12 @@ class EmitterTrackManager:
         candidates = []
         for track in self.tracks.values():
             gap = observation.start_toa_s - track.last_end_s
-            if gap > self.max_gap_s:
+            # Separate pulse-train observations that overlap in time are
+            # provisionally distinct simultaneous trains. Do not silently
+            # merge them into one physical emitter in this simple baseline.
+            # This assumes non-overlapping observation windows per emitter;
+            # a future tracker must handle sliding-window updates explicitly.
+            if gap < 0 or gap > self.max_gap_s:
                 continue
             df = abs(observation.frequency_hz - track.frequency_hz) / self.frequency_gate_hz
             da = abs(observation.aoa_deg - track.aoa_deg) / self.aoa_gate_deg
