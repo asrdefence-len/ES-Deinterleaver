@@ -60,7 +60,8 @@ class JointHypothesis:
 
     @property
     def last_emitter(self):
-        return self.history.emitter
+        # No PDW has been associated yet during an idle-only observation.
+        return None if self.history is None else self.history.emitter
 
 
 def logsumexp(xs):
