@@ -25,7 +25,7 @@ def main():
         print(f"{name:18s} accuracy={metrics['one_to_one_accuracy']:.3%} "
               f"coverage={metrics['coverage']:.3%} tracks={metrics['tracks']} "
               f"runtime={elapsed:.3f}s")
-        if hasattr(algorithm, "tracks"):
+        if hasattr(algorithm, "tracks") and isinstance(algorithm, (PRIGuidedDeinterleaver, PhaseFoldingDeinterleaver)):
             for track in algorithm.tracks:
                 print(f"  {track.track_id}: PRI={track.pri_model.mean_s*1e6:.3f} us; "
                       f"PDWs={len(track.associated_pdw_ids)}")
