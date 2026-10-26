@@ -1,7 +1,7 @@
 """Experimental joint Bayesian association and timing tracking for TWO established emitters.
 
 Each global hypothesis contains two Gaussian timing states (epoch, PRI), pulse
-indices and an association history. Each PDW branches to either emitter and
+indices and a shared immutable association-history chain. Each PDW branches to either emitter and
 possible next pulse slots. The measurement likelihood includes both timing
 state covariance and SNR-dependent TOA variance. A bounded global beam
 approximates the posterior. This is NOT blind acquisition: initial states
@@ -24,11 +24,42 @@ class Track:
 
 
 @dataclass(frozen=True)
+class HistoryNode:
+    """Shared immutable ancestry; one allocation per branch, not full tuple copies."""
+    parent: object
+    emitter: int
+    index: int
+
+
+def history_tuples(node):
+    """Materialize histories only for diagnostics / external consumers."""
+    assignments, indices = [], []
+    while node is not None:
+        assignments.append(node.emitter)
+        indices.append(node.index)
+        node = node.parent
+    assignments.reverse()
+    indices.reverse()
+    return tuple(assignments), tuple(indices)
+
+
+@dataclass(frozen=True)
 class JointHypothesis:
     tracks: tuple
-    assignments: tuple = ()
-    indices: tuple = ()
+    history: object = None
     log_weight: float = 0.
+
+    @property
+    def assignments(self):
+        return history_tuples(self.history)[0]
+
+    @property
+    def indices(self):
+        return history_tuples(self.history)[1]
+
+    @property
+    def last_emitter(self):
+        return self.history.emitter
 
 
 def logsumexp(xs):
@@ -98,8 +129,7 @@ class JointTimingTracker:
                     tracks[emitter] = updated
                     branches.append(JointHypothesis(
                         tuple(tracks),
-                        hypothesis.assignments+(emitter,),
-                        hypothesis.indices+(n,),
+                        HistoryNode(hypothesis.history,emitter,n),
                         hypothesis.log_weight+ll-math.log(2*self.max_skip)))
         if not branches:
             raise RuntimeError("No viable association hypotheses")
@@ -115,7 +145,7 @@ class JointTimingTracker:
         weights = [math.exp(h.log_weight) for h in self.hypotheses]
         association = tuple(
             sum(w for w,h in zip(weights,self.hypotheses)
-                if h.assignments[-1] == emitter)
+                if h.last_emitter == emitter)
             for emitter in range(2))
         best = self.hypotheses[0]
         return {
