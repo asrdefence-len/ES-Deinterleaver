@@ -1,5 +1,6 @@
 """Four-arm controlled PRI change experiment, truth used only for scoring."""
 import json
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from time import perf_counter
@@ -36,7 +37,7 @@ def run(path="scenarios/pri_mode_change.json"):
         print("period      radar  seen correct wrong withheld")
         rows = []
         for lo, hi, label in PERIODS:
-            for emitter in ("A", "B", "C"):
+            for emitter in sorted(set(truth.values())):
                 subset = [p for p in pdws if lo <= p.toa_s < hi
                           and truth[p.pdw_id] == emitter]
                 assigned = [p for p in subset if p.pdw_id in model.assignments]
@@ -58,4 +59,4 @@ def run(path="scenarios/pri_mode_change.json"):
 
 
 if __name__ == "__main__":
-    run()
+    run(sys.argv[1] if len(sys.argv) > 1 else "scenarios/pri_mode_change.json")
