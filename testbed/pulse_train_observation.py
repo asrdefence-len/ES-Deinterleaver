@@ -27,6 +27,10 @@ class PulseTrainObservation:
     association_confidence: Optional[float] = None
     ambiguous_pdw_ids: Tuple[int, ...] = ()
     missed_pulse_count: Optional[int] = None
+    # Optional ordered measurements; preserve agility without inferring emitter ID.
+    toa_sequence_s: Tuple[float, ...] = ()
+    frequency_sequence_hz: Tuple[float, ...] = ()
+    pri_intervals_s: Tuple[float, ...] = ()
 
     def __post_init__(self):
         if self.schema_version != 1:
@@ -45,6 +49,13 @@ class PulseTrainObservation:
                 raise ValueError("Uncertainty must be nonnegative")
         if self.association_confidence is not None and not (0 <= self.association_confidence <= 1):
             raise ValueError("Confidence must be between zero and one")
+        if self.toa_sequence_s and (len(self.toa_sequence_s) != self.pulse_count or
+                                    tuple(sorted(self.toa_sequence_s)) != self.toa_sequence_s):
+            raise ValueError('TOA sequence must be sorted and match pulse count')
+        if self.frequency_sequence_hz and len(self.frequency_sequence_hz) != self.pulse_count:
+            raise ValueError('Frequency sequence must match pulse count')
+        if any(v <= 0 for v in self.pri_intervals_s):
+            raise ValueError('PRI intervals must be positive')
         if self.missed_pulse_count is not None and self.missed_pulse_count < 0:
             raise ValueError("Missed-pulse count must be nonnegative")
 
@@ -81,5 +92,8 @@ def observations_from_streaming(processor, pdws):
             pulse_count=len(members),
             pdw_ids=tuple(p.pdw_id for p in members),
             association_confidence=None,
+            toa_sequence_s=tuple(p.toa_s for p in members),
+            frequency_sequence_hz=tuple(p.frequency_hz for p in members),
+            pri_intervals_s=tuple(b.toa_s-a.toa_s for a,b in zip(members, members[1:])),
         ))
     return output
