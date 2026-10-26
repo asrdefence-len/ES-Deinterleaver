@@ -42,11 +42,11 @@ def main():
     for label, observations in cases.items():
         tracker = IMMEmitterTracker()
         ids = [tracker.process(o) for o in observations]
-        print(f"\\n{label}: assignments={ids}")
+        print(f"\n{label}: assignments={ids}")
         for track in tracker.snapshot()["tracks"]:
             print(f"  {track['emitter_id']}: PRI={track['pri_models']}, "
                   f"RF={track['frequency_models']}")
-    print("\\nCaution: probabilities are heuristic and not calibrated; "
+    print("\nCaution: probabilities are heuristic and not calibrated; "
           "these tests do not validate raw-PDW deinterleaving.")
 
 
