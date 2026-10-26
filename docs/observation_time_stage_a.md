@@ -112,3 +112,33 @@ a PDW is associated. The resulting approximation is not yet a complete
 joint event-time likelihood. In particular, repeated watermarks may be
 statistically uninformative when all hypotheses predict identical counts
 of overdue pulses. No performance benefit is presumed.
+
+
+## Truth-branch diagnostics (2026-10-27)
+
+`JointTimingTracker.process(..., diagnostic_truth=(assignments,indices))`
+optionally records the **actual generated** truth-branch timing log likelihood,
+detection log likelihood, parent log weight, missed selected slots, pulse
+index, accounted indices before/after, and its rank and normalised weight
+among all candidate branches *before* beam truncation. No diagnostic
+work is performed by default. `crossing_pulse_stress.py --diagnose-truth`
+prints up to five first-loss examples.
+
+If `rank_before_pruning > beam`, loss is directly attributable to beam
+capping under the **current** likelihood, but the likelihood may itself
+be misspecified. If the truth branch is absent, inspect slot bounds and
+whether an earlier watermark already declared the true pulse missed.
+The diagnostic currently records the first lost history only and does
+not yet decompose the watermark penalties per branch. Truth histories
+are checked after processing a PDW; watermark-only pruning is not
+separately instrumented.
+
+Suggested sensitivity experiment:
+
+```bash
+python crossing_pulse_stress.py --scenario very_close --trials 20 --pd .7 --beam 128 --observation-detection-probability .7 --deadline-sigmas 3 --diagnose-truth
+python crossing_pulse_stress.py --scenario very_close --trials 20 --pd .7 --beam 512 --observation-detection-probability .7 --deadline-sigmas 3 --diagnose-truth
+```
+
+Repeat for deadline sigmas 1, 2, 4 and 5. These are exploratory
+comparisons; no improvement or calibration claim is made.
