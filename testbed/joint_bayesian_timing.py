@@ -139,8 +139,9 @@ class JointTimingTracker:
         self.beam_width = beam_width
         self.max_skip = max_skip
         self.last_toa = None
+        self.truth_diagnostic = None
 
-    def process(self, toa_s, snr_db):
+    def process(self, toa_s, snr_db, diagnostic_truth=None):
         if not math.isfinite(toa_s):
             raise ValueError("TOA must be finite")
         if self.last_toa is not None and toa_s <= self.last_toa:
@@ -149,6 +150,7 @@ class JointTimingTracker:
             raise ValueError("PDW is not later than the committed observation watermark")
         r = toa_sigma(snr_db)**2
         branches = []
+        truth_branch_details = [] if diagnostic_truth is not None else None
         for hypothesis in self.hypotheses:
             for emitter, track in enumerate(hypothesis.tracks):
                 # Prior on the next integer index: uniform among allowed
@@ -211,6 +213,26 @@ class JointTimingTracker:
                         skip_log_prior = (math.log(self.detection_probability)
                                           +(gap-1)*math.log1p(-self.detection_probability)
                                           -math.log(2.))
+                    if truth_branch_details is not None:
+                        # Instrument the ACTUAL branch calculation, not an
+                        # independently reimplemented diagnostic likelihood.
+                        expected_assignments, expected_indices = diagnostic_truth
+                        parent_assignments, parent_indices = history_tuples(hypothesis.history)
+                        if (parent_assignments == tuple(expected_assignments[:-1]) and
+                                parent_indices == tuple(expected_indices[:-1]) and
+                                emitter == expected_assignments[-1] and
+                                n == expected_indices[-1]):
+                            truth_branch_details.append({
+                                "timing_log_likelihood": ll,
+                                "detection_log_likelihood": skip_log_prior,
+                                "parent_log_weight": hypothesis.log_weight,
+                                "missed_selected": (n-hypothesis.accounted_indices[emitter]-1)
+                                    if self.observation_detection_probability is not None else None,
+                                "accounted_before": hypothesis.accounted_indices,
+                                "accounted_after": accounted,
+                                "candidate_index": n,
+                                "emitter": emitter,
+                            })
                     branches.append(JointHypothesis(
                         tuple(tracks),
                         HistoryNode(hypothesis.history,emitter,n),
@@ -219,6 +241,19 @@ class JointTimingTracker:
         if not branches:
             raise RuntimeError("No viable association hypotheses")
         branches.sort(key=lambda h:h.log_weight,reverse=True)
+        if diagnostic_truth is not None:
+            target_a, target_n = map(tuple, diagnostic_truth)
+            truth_rank = next((i+1 for i,h in enumerate(branches)
+                               if h.assignments == target_a and h.indices == target_n), None)
+            truth_weight = (math.exp(branches[truth_rank-1].log_weight -
+                                     logsumexp([h.log_weight for h in branches]))
+                            if truth_rank is not None else None)
+            self.truth_diagnostic = {
+                "rank_before_pruning": truth_rank,
+                "posterior_mass_before_pruning": truth_weight,
+                "branch_terms": truth_branch_details,
+                "candidate_count": len(branches),
+            }
         capped = branches[:self.beam_width]
         full_norm = logsumexp([h.log_weight for h in branches])
         cap_norm = logsumexp([h.log_weight for h in capped])
