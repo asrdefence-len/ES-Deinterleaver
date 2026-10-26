@@ -1,0 +1,52 @@
+{
+  "name": "arbitrary_pri_change_same_aoa",
+  "duration_s": 1,
+  "seed": 43,
+  "measurement": {
+    "frequency_sigma_hz": 100000,
+    "toa_sigma_s": 5e-8,
+    "pw_sigma_s": 1e-7,
+    "aoa_sigma_deg": 1.5,
+    "amplitude_sigma_db": 1,
+    "detection_probability": 0.95
+  },
+  "emitters": [
+    {
+      "id": "A",
+      "frequency_hz": 9400000000,
+      "pri_s": 0.001,
+      "pw_s": 0.00001,
+      "aoa_deg": 45,
+      "amplitude_dbfs": -30,
+      "start_s": 0,
+      "pri_schedule": [
+        {
+          "start_s": 0.4,
+          "pri_s": 0.00075
+        },
+        {
+          "start_s": 0.6,
+          "pri_s": 0.001
+        }
+      ]
+    },
+    {
+      "id": "B",
+      "frequency_hz": 9400000000,
+      "pri_s": 0.00102,
+      "pw_s": 0.00001,
+      "aoa_deg": 46,
+      "amplitude_dbfs": -32,
+      "start_s": 0.0002
+    },
+    {
+      "id": "C",
+      "frequency_hz": 9400000000,
+      "pri_s": 0.00098,
+      "pw_s": 0.000012,
+      "aoa_deg": 44,
+      "amplitude_dbfs": -31,
+      "start_s": 0.0004
+    }
+  ]
+}
