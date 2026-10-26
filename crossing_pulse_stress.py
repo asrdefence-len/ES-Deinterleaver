@@ -24,7 +24,7 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
           record_trace=False, retained_mass=None, min_beam=1,
           detection_probability=None, joint_detection_probability=None,
           observation_detection_probability=None, deadline_sigmas=3.,
-          silent_window=None):
+          silent_window=None,diagnose_truth=False):
     if scenario not in SCENARIOS or count < 3 or not 0 < pd <= 1:
         raise ValueError("Invalid scenario/count/Pd")
     delta = SCENARIOS[scenario]
@@ -72,8 +72,10 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
     discarded_masses=[]
     assignment_truth=[]
     index_truth=[]
+    truth_pruning_diagnostic=None
     for step,(toa,snr,emitter,n) in enumerate(obs):
-        snapshot=tracker.process(toa,snr)
+        expected=(tuple(assignment_truth)+(emitter,),tuple(index_truth)+(n,))
+        snapshot=tracker.process(toa,snr,diagnostic_truth=expected if diagnose_truth else None)
         if observation_detection_probability is not None:
             # The receiver has now delivered all PDWs up to this TOA.
             # Commit nondetections without looking ahead to the next PDW.
@@ -99,6 +101,10 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
             for h in tracker.hypotheses):
             truth_alive=False
             first_pruned=step
+            if diagnose_truth:
+                truth_pruning_diagnostic=dict(step=step,toa_s=toa,
+                    true_emitter=emitter,true_index=n,
+                    **(tracker.truth_diagnostic or {}))
         if record_trace:
             trace.append((step,toa,snr,emitter,n,p,op,
                           snapshot["retained_hypotheses"],truth_alive))
@@ -116,14 +122,15 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
                 pri_error_ns=[(best[j].pri-models[j][1])*1e9 for j in range(2)],
                 mean_retained_hypotheses=sum(retained_counts)/len(retained_counts),
                 mean_discarded_mass=sum(discarded_masses)/len(discarded_masses),
-                bins=bins,trace=trace)
+                bins=bins,trace=trace,
+                truth_pruning_diagnostic=truth_pruning_diagnostic)
 
 
 def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32,
                retained_mass=None,min_beam=1,detection_probability=None,
                joint_detection_probability=None,
                observation_detection_probability=None,deadline_sigmas=3.,
-               silent_window=None):
+               silent_window=None,diagnose_truth=False):
     if trials<1:
         raise ValueError("Positive trials required")
     rows=[trial(19017+7919*i,scenario,count,pd,beam,
@@ -131,7 +138,8 @@ def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32,
                 detection_probability=detection_probability,
                 joint_detection_probability=joint_detection_probability,
                 observation_detection_probability=observation_detection_probability,
-                deadline_sigmas=deadline_sigmas,silent_window=silent_window)
+                deadline_sigmas=deadline_sigmas,silent_window=silent_window,
+                diagnose_truth=diagnose_truth)
           for i in range(trials)]
     total=sum(r["n"] for r in rows)
     bins=[[sum(r["bins"][j][k] for r in rows) for k in range(3)]
@@ -151,6 +159,9 @@ def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32,
                 terminal_pri_rmse_ns=[math.sqrt(sum(r["pri_error_ns"][j]**2
                                                        for r in rows)/trials)
                                       for j in range(2)],
+                truth_pruning_examples=[r["truth_pruning_diagnostic"] for r in rows
+                                        if r["truth_pruning_diagnostic"] is not None][:5]
+                                        if diagnose_truth else [],
                 calibration=[dict(bin=f"{j/10:.1f}-{(j+1)/10:.1f}",
                                   n=v[0],predicted=v[1]/v[0],
                                   observed=v[2]/v[0])
@@ -172,6 +183,7 @@ def main():
     parser.add_argument("--deadline-sigmas",type=float,default=3.)
     parser.add_argument("--silent-start-ms",type=float,default=None)
     parser.add_argument("--silent-stop-ms",type=float,default=None)
+    parser.add_argument("--diagnose-truth",action="store_true")
     parser.add_argument("--trace",action="store_true",
                         help="Print per-PDW trace for first trial")
     args=parser.parse_args()
@@ -186,7 +198,8 @@ def main():
                                     args.detection_probability,
                                     args.joint_detection_probability,
                                     args.observation_detection_probability,
-                                    args.deadline_sigmas,silent_window).items():
+                                    args.deadline_sigmas,silent_window,
+                                    args.diagnose_truth).items():
             print(f"{key}: {value}")
         if args.trace:
             print("step,toa_s,snr_db,true_emitter,pulse_index,p_emitter_B,oracle_p_B,beam_count,truth_alive")
@@ -197,7 +210,8 @@ def main():
                              joint_detection_probability=args.joint_detection_probability,
                              observation_detection_probability=args.observation_detection_probability,
                              deadline_sigmas=args.deadline_sigmas,
-                             silent_window=silent_window)["trace"]:
+                             silent_window=silent_window,
+                             diagnose_truth=args.diagnose_truth)["trace"]:
                 print(",".join(map(str,row)))
 
 
