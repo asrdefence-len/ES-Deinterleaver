@@ -131,7 +131,7 @@ def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32,
                retained_mass=None,min_beam=1,detection_probability=None,
                joint_detection_probability=None,
                observation_detection_probability=None,deadline_sigmas=3.,
-               silent_window=None,diagnose_truth=False):
+               silent_window=None,diagnose_truth=False,expected_toa_sigma_s=0.):
     if trials<1:
         raise ValueError("Positive trials required")
     rows=[trial(19017+7919*i,scenario,count,pd,beam,
