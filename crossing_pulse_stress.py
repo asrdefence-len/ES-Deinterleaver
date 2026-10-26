@@ -22,7 +22,9 @@ CROSS_INDEX = 22
 def trial(seed, scenario="very_close", count=COUNT, pd=.95,
           beam=32, epoch_sigma=1e-6, pri_sigma=.2e-6,
           record_trace=False, retained_mass=None, min_beam=1,
-          detection_probability=None, joint_detection_probability=None):
+          detection_probability=None, joint_detection_probability=None,
+          observation_detection_probability=None, deadline_sigmas=3.,
+          silent_window=None):
     if scenario not in SCENARIOS or count < 3 or not 0 < pd <= 1:
         raise ValueError("Invalid scenario/count/Pd")
     delta = SCENARIOS[scenario]
@@ -38,6 +40,15 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
                 obs.append((epoch+n*pri+rng.gauss(0,toa_sigma(snr)),
                             snr,emitter,n))
     obs.sort(key=lambda x:x[0])
+    # Silence is a receiver dropout, NOT evidence that emitters stopped
+    # transmitting. Existing pulse trains continue; observations are removed.
+    if silent_window is not None:
+        start_s, stop_s = silent_window
+        if not 0 <= start_s < stop_s:
+            raise ValueError("Invalid silent window")
+        obs = [o for o in obs if not start_s <= o[0] < stop_s]
+    if not obs:
+        raise ValueError("No observed PDWs")
     prior_rng = random.Random(seed+700001)
     initial = [(epoch+prior_rng.gauss(0,epoch_sigma),
                 pri+prior_rng.gauss(0,pri_sigma),
@@ -46,7 +57,9 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
     tracker = JointTimingTracker(initial,beam_width=beam,max_skip=12,
                                  retained_mass=retained_mass,min_beam=min_beam,
                                  detection_probability=detection_probability,
-                                 joint_detection_probability=joint_detection_probability)
+                                 joint_detection_probability=joint_detection_probability,
+                                 observation_detection_probability=observation_detection_probability,
+                                 deadline_sigmas=deadline_sigmas)
     oracle_models = [(epoch,pri,count) for epoch,pri in models]
     correct=oracle_correct=0
     brier=oracle_brier=0.
@@ -61,6 +74,10 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
     index_truth=[]
     for step,(toa,snr,emitter,n) in enumerate(obs):
         snapshot=tracker.process(toa,snr)
+        if observation_detection_probability is not None:
+            # The receiver has now delivered all PDWs up to this TOA.
+            # Commit nondetections without looking ahead to the next PDW.
+            tracker.advance_time(toa)
         retained_counts.append(snapshot["retained_hypotheses"])
         discarded_masses.append(snapshot["pruning_diagnostics"]["discarded_mass_before_renormalization"])
         p=snapshot["association_probabilities"][1]
@@ -85,6 +102,10 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
         if record_trace:
             trace.append((step,toa,snr,emitter,n,p,op,
                           snapshot["retained_hypotheses"],truth_alive))
+    # End-of-record idle time: a useful explicit test of no-PDW accounting.
+    if observation_detection_probability is not None:
+        end_time=max(epoch+(count-1)*pri for epoch,pri in models)+5e-6
+        tracker.advance_time(max(end_time,obs[-1][0]))
     best=tracker.snapshot()["best_tracks"]
     return dict(n=len(obs),accuracy=correct/len(obs),
                 oracle_accuracy=oracle_correct/len(obs),
@@ -100,13 +121,17 @@ def trial(seed, scenario="very_close", count=COUNT, pd=.95,
 
 def experiment(scenario="very_close",trials=20,count=COUNT,pd=.95,beam=32,
                retained_mass=None,min_beam=1,detection_probability=None,
-               joint_detection_probability=None):
+               joint_detection_probability=None,
+               observation_detection_probability=None,deadline_sigmas=3.,
+               silent_window=None):
     if trials<1:
         raise ValueError("Positive trials required")
     rows=[trial(19017+7919*i,scenario,count,pd,beam,
                 retained_mass=retained_mass,min_beam=min_beam,
                 detection_probability=detection_probability,
-                joint_detection_probability=joint_detection_probability)
+                joint_detection_probability=joint_detection_probability,
+                observation_detection_probability=observation_detection_probability,
+                deadline_sigmas=deadline_sigmas,silent_window=silent_window)
           for i in range(trials)]
     total=sum(r["n"] for r in rows)
     bins=[[sum(r["bins"][j][k] for r in rows) for k in range(3)]
@@ -143,16 +168,25 @@ def main():
     parser.add_argument("--min-beam",type=int,default=1)
     parser.add_argument("--detection-probability",type=float,default=None)
     parser.add_argument("--joint-detection-probability",type=float,default=None)
+    parser.add_argument("--observation-detection-probability",type=float,default=None)
+    parser.add_argument("--deadline-sigmas",type=float,default=3.)
+    parser.add_argument("--silent-start-ms",type=float,default=None)
+    parser.add_argument("--silent-stop-ms",type=float,default=None)
     parser.add_argument("--trace",action="store_true",
                         help="Print per-PDW trace for first trial")
     args=parser.parse_args()
+    if (args.silent_start_ms is None) != (args.silent_stop_ms is None):
+        parser.error("Specify both silent-start-ms and silent-stop-ms")
+    silent_window=(args.silent_start_ms*1e-3,args.silent_stop_ms*1e-3) if args.silent_start_ms is not None else None
     scenarios=SCENARIOS if args.scenario=="all" else (args.scenario,)
     for scenario in scenarios:
         print("\nSCENARIO",scenario)
         for key,value in experiment(scenario,args.trials,args.count,
                                     args.pd,args.beam,args.retained_mass,args.min_beam,
                                     args.detection_probability,
-                                    args.joint_detection_probability).items():
+                                    args.joint_detection_probability,
+                                    args.observation_detection_probability,
+                                    args.deadline_sigmas,silent_window).items():
             print(f"{key}: {value}")
         if args.trace:
             print("step,toa_s,snr_db,true_emitter,pulse_index,p_emitter_B,oracle_p_B,beam_count,truth_alive")
@@ -160,7 +194,10 @@ def main():
                              record_trace=True,retained_mass=args.retained_mass,
                              min_beam=args.min_beam,
                              detection_probability=args.detection_probability,
-                             joint_detection_probability=args.joint_detection_probability)["trace"]:
+                             joint_detection_probability=args.joint_detection_probability,
+                             observation_detection_probability=args.observation_detection_probability,
+                             deadline_sigmas=args.deadline_sigmas,
+                             silent_window=silent_window)["trace"]:
                 print(",".join(map(str,row)))
 
 
