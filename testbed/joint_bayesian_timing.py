@@ -91,7 +91,7 @@ def update(track, toa, n, measurement_variance):
 
 class JointTimingTracker:
     def __init__(self, initial, beam_width=64, max_skip=12,
-                 retained_mass=None, min_beam=1):
+                 retained_mass=None, min_beam=1, detection_probability=None):
         """initial: two (epoch,PRI,epoch_sigma,PRI_sigma) tuples.
 
         Epoch and PRI prior covariance initially assumed zero.
@@ -102,6 +102,9 @@ class JointTimingTracker:
             raise ValueError("retained_mass must be in (0, 1]")
         if not 1 <= min_beam <= beam_width:
             raise ValueError("min_beam must be between 1 and beam_width")
+        if detection_probability is not None and not 0 < detection_probability <= 1:
+            raise ValueError("detection_probability must be in (0, 1]")
+        self.detection_probability = detection_probability
         self.retained_mass = retained_mass
         self.min_beam = min_beam
         self.pruning_diagnostics = {}
@@ -129,6 +132,8 @@ class JointTimingTracker:
                 # not a receiver Pd or missed-detection model.
                 start = track.index+1
                 for n in range(start,start+self.max_skip):
+                    if self.detection_probability == 1. and n > start:
+                        continue
                     outcome = update(track,toa_s,n,r)
                     if outcome is None:
                         continue
@@ -138,7 +143,7 @@ class JointTimingTracker:
                     branches.append(JointHypothesis(
                         tuple(tracks),
                         HistoryNode(hypothesis.history,emitter,n),
-                        hypothesis.log_weight+ll-math.log(2*self.max_skip)))
+                        hypothesis.log_weight+ll+skip_log_prior))
         if not branches:
             raise RuntimeError("No viable association hypotheses")
         branches.sort(key=lambda h:h.log_weight,reverse=True)
