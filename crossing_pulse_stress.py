@@ -140,8 +140,7 @@ def main():
     args=parser.parse_args()
     scenarios=SCENARIOS if args.scenario=="all" else (args.scenario,)
     for scenario in scenarios:
-        print("
-SCENARIO",scenario)
+        print("\nSCENARIO",scenario)
         for key,value in experiment(scenario,args.trials,args.count,
                                     args.pd,args.beam,args.retained_mass,args.min_beam).items():
             print(f"{key}: {value}")
