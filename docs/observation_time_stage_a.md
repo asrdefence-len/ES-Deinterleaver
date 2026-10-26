@@ -164,3 +164,27 @@ Run:
 python -m pytest -q
 python crossing_pulse_stress.py --scenario very_close --trials 20 --pd .70 --beam 128 --observation-detection-probability .70 --deadline-sigmas 3 --diagnose-truth
 ```
+
+
+## Correction A: receiver TOA noise in deadlines
+
+Optional `expected_toa_sigma_s` on `JointTimingTracker` adds assumed
+measurement timing variance to the track-state variance in the hard deadline:
+
+`deadline = predicted_TOA + deadline_sigmas * sqrt(state_variance + expected_toa_sigma_s**2)`
+
+The default **zero** deliberately reproduces the old model for paired
+comparison; this is **not** a physical default recommendation. In the
+crossing harness the equivalent CLI flag is `--expected-toa-sigma-ns`.
+The parameter is an assumed per-pulse TOA standard deviation, **not** a
+measured SNR or learned receiver noise estimate. The experiment still
+assumes constant Pd, ideal resolution, and irreversible missed slots.
+
+Compare on identical trial seeds:
+```bash
+python crossing_pulse_stress.py --scenario very_close --trials 100 --pd .70 --beam 128 --observation-detection-probability .70 --diagnose-truth
+python crossing_pulse_stress.py --scenario very_close --trials 100 --pd .70 --beam 128 --observation-detection-probability .70 --expected-toa-sigma-ns 400 --diagnose-truth
+```
+The 400 ns value is a **sensitivity assumption**, not a calibrated receiver
+measurement. Sweep it and report accuracy, Brier score, and truth-history
+survival rather than presuming improvement.
