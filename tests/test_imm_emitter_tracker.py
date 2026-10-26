@@ -67,7 +67,7 @@ def test_same_bearing_simultaneous_trains_not_forced_together():
 def test_ambiguous_identity_withheld():
     t = IMMEmitterTracker()
     t.process(observation("a", 0, aoa=44))
-    t.process(observation("b", 0.02, aoa=46))
+    t.process(observation("b", 0.005, aoa=46))
     assert t.process(observation("c", 0.1, aoa=45)) is None
     assert t.snapshot()["pending_train_ids"] == ["c"]
 
