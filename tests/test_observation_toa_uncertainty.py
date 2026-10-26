@@ -7,7 +7,7 @@ from crossing_pulse_stress import trial
 def make_tracker(receiver_sigma):
     return JointTimingTracker(
         [(100e-6, .001, .01e-6, .001e-6),
-         (102e-6, .001, .01e-6, .001e-6)],
+         (100.5e-6, .001, .01e-6, .001e-6)],
         beam_width=8, max_skip=2,
         observation_detection_probability=.7, deadline_sigmas=3.,
         expected_toa_sigma_s=receiver_sigma)
@@ -19,8 +19,8 @@ def test_880ns_late_pulse_is_not_prematurely_excluded():
     # A PDW from the other emitter moves observation time beyond the
     # state-only deadline for emitter A's first pulse.
     for t in (old,corrected):
-        t.process(102e-6,30.)
-        t.advance_time(102e-6)
+        t.process(100.5e-6,30.)
+        t.advance_time(100.5e-6)
     assert all(h.accounted_indices[0] >= 0 for h in old.hypotheses)
     assert all(h.accounted_indices[0] == -1 for h in corrected.hypotheses)
     # The A pulse is late by 880 ns but within 3*400 ns.
@@ -32,7 +32,7 @@ def test_880ns_late_pulse_is_not_prematurely_excluded():
 def test_zero_noise_preserves_default_behavior():
     a=make_tracker(0.)
     b=JointTimingTracker(
-        [(100e-6,.001,.01e-6,.001e-6),(102e-6,.001,.01e-6,.001e-6)],
+        [(100e-6,.001,.01e-6,.001e-6),(100.5e-6,.001,.01e-6,.001e-6)],
         beam_width=8,max_skip=2,observation_detection_probability=.7,
         deadline_sigmas=3.)
     a.advance_time(500e-6)
