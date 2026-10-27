@@ -45,7 +45,14 @@ def main():
     if not candidates:
         raise RuntimeError("No selected emitter pulses grouped in this window")
     # Select group containing the most selected-emitter observations.
-    gid=candidates.most_common(1)[0][0]
+    # Prefer the group containing both emitters 46 and 80.
+    # Otherwise favour groups representing more requested emitters.
+    def rank(g):
+        members=truth[labels==g]
+        represented=sum(np.any(members==e) for e in a.emitters)
+        has_pair=int(np.any(members==46) and np.any(members==80))
+        return (has_pair,represented,candidates[g])
+    gid=max(candidates,key=rank)
     in_group=labels==gid
     print(f"Window {a.window}: rows {start}:{stop}; selected DBSCAN group {gid}")
     print("Group composition:",dict(Counter(truth[in_group].tolist()).most_common()))
