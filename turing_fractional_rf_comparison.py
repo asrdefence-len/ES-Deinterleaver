@@ -14,7 +14,9 @@ from sklearn.cluster import DBSCAN
 from turing_grouping_comparison import robust_scale
 
 
-from candidate_grouping import group_pdws, RF_FRACTION\n\nMETHODS=("Population adaptive","Fixed 1000","Fractional 10%","Fractional 8%","Fractional 5%")
+from candidate_grouping import group_pdws, RF_FRACTION
+
+METHODS=("Population adaptive","Fixed 1000","Fractional 10%","Fractional 8%","Fractional 5%")
 
 
 def grouping(x,names,method):
