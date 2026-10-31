@@ -1,0 +1,17 @@
+{
+  "file": null,
+  "windows": 5,
+  "start_window": 0,
+  "window_size": 10000,
+  "seeds": 20,
+  "seed_start": 100,
+  "threshold": 0.03,
+  "aoa_gate": 3.0,
+  "min_pulses": 100,
+  "bins": 128,
+  "amplitude_feature": null,
+  "amplitude_scale": null,
+  "output": "results/optimal_transport",
+  "effective_amplitude_scale": "db",
+  "effective_amplitude_feature": "Amplitude"
+}

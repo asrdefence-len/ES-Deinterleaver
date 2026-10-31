@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+results/
+# Keep downloaded recordings local; version instructions separately.
+turing_data/

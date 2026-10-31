@@ -20,3 +20,13 @@ python3 -m unittest discover -s tests -v
 The output folder contains `observations.csv`, `truth.csv`, `assignments.csv`, `metrics.json`, and `assignments.png`.
 
 **Important:** The baseline is deliberately simple: it does not solve PRI ambiguity, frequency hopping, overlapping IQ pulses, or waveform-assisted association. AOA is simulated, not measured by hardware. Scoring uses truth only after deinterleaving.
+
+## Optimal transport blob association trial
+
+See [experiment notes](docs/optimal_transport_trial.md) for the initial
+synthetic results and limitations, and [local recording instructions](docs/turing_data.md).
+
+```bash
+python -m pip install -r requirements-experiments.txt
+python trial_optimal_transport.py --seeds 20 --seed-start 100
+```
