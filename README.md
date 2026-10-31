@@ -20,9 +20,3 @@ python3 -m unittest discover -s tests -v
 The output folder contains `observations.csv`, `truth.csv`, `assignments.csv`, `metrics.json`, and `assignments.png`.
 
 **Important:** The baseline is deliberately simple: it does not solve PRI ambiguity, frequency hopping, overlapping IQ pulses, or waveform-assisted association. AOA is simulated, not measured by hardware. Scoring uses truth only after deinterleaving.
-
-## Experimental frequency-density split
-
-For a batch before/after comparison across local HDF5 recordings, see
-[RF density experiment](docs/rf_density_batch.md). This experiment adds no OT
-and does not change the existing grouping implementations.
