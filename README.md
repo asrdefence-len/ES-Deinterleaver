@@ -21,13 +21,14 @@ The output folder contains `observations.csv`, `truth.csv`, `assignments.csv`, `
 
 **Important:** The baseline is deliberately simple: it does not solve PRI ambiguity, frequency hopping, overlapping IQ pulses, or waveform-assisted association. AOA is simulated, not measured by hardware. Scoring uses truth only after deinterleaving.
 
-## Pulse association inside the tracking pipeline
+## Whole-blob emitter tracking
 
-The [integrated fixed-PRI baseline](docs/pulse_association_pipeline.md)
-connects pulse-train discovery to the existing emitter identity manager.
+The [whole-blob tracker](docs/blob_tracking.md) consumes fixed-membership
+blob summaries. It associates observations without reopening or reassigning
+individual pulses, and retains ambiguous emitter explanations.
 
 ```bash
 python3 -m pip install -r requirements-experiments.txt
-python3 run_pulse_association.py turing_data/config_101.h5 \
-  --window 0 --blobs 9 11 12 --output results/pulse_association_focus
+python3 run_blob_tracker.py turing_data/config_101.h5 \
+  --window 0 --blobs 9 11 12 --output results/blob_tracker_focus
 ```
