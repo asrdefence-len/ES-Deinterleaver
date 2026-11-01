@@ -59,7 +59,7 @@ class EmitterTrackManager:
             if gap < 0 or gap > self.max_gap_s:
                 continue
             df = abs(observation.frequency_hz - track.frequency_hz) / self.frequency_gate_hz
-            da = abs(observation.aoa_deg - track.aoa_deg) / self.aoa_gate_deg
+            da = abs((observation.aoa_deg - track.aoa_deg + 180) % 360 - 180) / self.aoa_gate_deg
             dp = abs(observation.pulse_width_s - track.pulse_width_s) / self.pw_gate_s
             if df <= 1 and da <= 1 and dp <= 1:
                 candidates.append((df * df + da * da + dp * dp, track))
