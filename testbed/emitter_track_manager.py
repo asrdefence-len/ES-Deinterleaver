@@ -6,6 +6,7 @@ and temporal continuity. Ambiguous matches are explicitly withheld.
 """
 from dataclasses import dataclass, field
 from testbed.pulse_train_observation import PulseTrainObservation
+from testbed.track_aided_pdw_association import TrackPrediction
 
 
 @dataclass
@@ -17,6 +18,8 @@ class EmitterTrack:
     pulse_width_s: float
     pri_s: float
     observations: list = field(default_factory=list)
+    frequency_modes_hz: list = field(default_factory=list)
+    phase_epoch_s: float | None = None
 
 
 class EmitterTrackManager:
@@ -76,15 +79,43 @@ class EmitterTrackManager:
             self._next_id += 1
             track = EmitterTrack(emitter_id, observation.end_toa_s,
                                  observation.frequency_hz, observation.aoa_deg,
-                                 observation.pulse_width_s, observation.pri_s)
+                                 observation.pulse_width_s, observation.pri_s,
+                                 frequency_modes_hz=[observation.frequency_hz],
+                                 phase_epoch_s=(observation.toa_sequence_s[0]
+                                     if observation.toa_sequence_s else
+                                     observation.start_toa_s))
             self.tracks[emitter_id] = track
         track.last_end_s = max(track.last_end_s, observation.end_toa_s)
         track.frequency_hz = observation.frequency_hz
         track.aoa_deg = observation.aoa_deg
         track.pulse_width_s = observation.pulse_width_s
         track.pri_s = observation.pri_s
+        if all(abs(observation.frequency_hz - mode) > self.frequency_gate_hz
+               for mode in track.frequency_modes_hz):
+            track.frequency_modes_hz.append(observation.frequency_hz)
         track.observations.append(observation)
         return track.emitter_id
+
+    def prediction(self, emitter_id, *, generated_at_s=None, track_score=None):
+        """Publish the current state as a raw-PDW association prediction."""
+        if emitter_id not in self.tracks:
+            raise KeyError(emitter_id)
+        track = self.tracks[emitter_id]
+        latest = track.observations[-1]
+        return TrackPrediction(
+            emitter_id=emitter_id,
+            generated_at_s=(track.last_end_s if generated_at_s is None
+                            else generated_at_s),
+            last_toa_s=track.last_end_s,
+            frequency_modes_hz=tuple(track.frequency_modes_hz),
+            aoa_deg=track.aoa_deg,
+            pulse_width_s=track.pulse_width_s,
+            pri_s=track.pri_s,
+            phase_epoch_s=track.phase_epoch_s,
+            timing_sigma_s=max(5e-6, latest.pri_sigma_s or 0.),
+            aoa_sigma_deg=max(1.5, latest.aoa_sigma_deg or 0.),
+            pulse_width_sigma_s=max(.15e-6, latest.pulse_width_sigma_s or 0.),
+            track_score=track_score)
 
     def snapshot(self):
         return {
@@ -92,6 +123,7 @@ class EmitterTrackManager:
                 "emitter_id": t.emitter_id,
                 "last_end_s": t.last_end_s,
                 "pri_s": t.pri_s,
+                "frequency_modes_hz": t.frequency_modes_hz,
                 "train_ids": [o.train_id for o in t.observations],
             } for t in self.tracks.values()],
             "pending_train_ids": [o.train_id for o in self.pending],

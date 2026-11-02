@@ -60,3 +60,14 @@ def test_adapter_produces_no_truth_or_persistent_emitter_id():
         assert set(item.pdw_ids).issubset(truth)
         assert not hasattr(item, "emitter_id")
         assert item.association_confidence is None
+
+
+def test_manager_publishes_prediction_for_raw_pdw_gating():
+    manager = EmitterTrackManager()
+    assert manager.process(observation("PT1", 0, 0.1, .001, 40)) == "E1"
+    prediction = manager.prediction("E1", generated_at_s=.11, track_score=.8)
+    assert prediction.emitter_id == "E1"
+    assert prediction.last_toa_s == .1
+    assert prediction.frequency_modes_hz == (9.4e9,)
+    assert prediction.aoa_deg == 40
+    assert prediction.track_score == .8
