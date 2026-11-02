@@ -1,4 +1,4 @@
-"""Track two source-recording Config 101 emitters from bounded blob-train measurements."""
+"""Track selected Config 101 emitter families through the shared blob pipeline."""
 from __future__ import annotations
 
 import argparse
@@ -22,6 +22,9 @@ from testbed.pulse_association_pipeline import FixedPRIPulseAssociation, PulseMe
 
 
 SCENARIOS = {
+    "e46_only": {
+        "E46": {"seed_window": 0, "blobs": tuple(range(8, 16)), "truth_id": 46},
+    },
     "separated": {
         "E46": {"seed_window": 0, "blobs": tuple(range(8, 16)), "truth_id": 46},
         "E33": {"seed_window": 0, "blobs": (62,), "truth_id": 33},
@@ -43,10 +46,13 @@ def main():
     parser.add_argument("file")
     parser.add_argument("--window-size", type=int, default=10000)
     parser.add_argument("--scenario", choices=tuple(SCENARIOS), default="separated")
-    parser.add_argument("--output", default="results/two_emitter_blob_tracker.json")
+    parser.add_argument("--output", help="Result path; E46-only defaults to its own versioned folder")
     parser.add_argument("--consistency-log", help="Stream branch-labelled Kalman diagnostics to JSONL")
     parser.add_argument("--pipeline", choices=("integrated", "legacy"), default="integrated")
     args = parser.parse_args()
+    if args.output is None:
+        args.output = ("results/e46_only/v1/e46_only.json" if args.scenario == "e46_only"
+                       else "results/two_emitter_blob_tracker.json")
     definitions = {name: dict(values) for name, values in SCENARIOS[args.scenario].items()}
     if args.pipeline == "integrated":
         definitions["E46"]["blobs"] = tuple(range(10, 34))
