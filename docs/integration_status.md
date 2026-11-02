@@ -86,3 +86,30 @@ truth emitter's pulses, including fragments outside the original primary.
 `pri_histogram_inputs.png` shows the actual blob-level selected-gap mean,
 standard deviation, hump centres and selected-gap support. These gap statistics
 must not be interpreted as transmitter fundamental PRI.
+
+## Confidence view and handoff correction
+
+The integrated path is a connected **experimental** path, not an accepted
+performance replacement for the earlier run. Grouping and PRI representation
+changed together during the initial integration. That replay cannot attribute
+a downstream regression to either individual change. Future comparisons must
+change one stage at a time with matched inputs and explicit measurement accounting.
+
+The confidence calculation remains in `BlobEmitterTracker`; the fragmentation
+plots did not display it. The original E38 primary in the integrated replay is
+last present at about 0.67 s. An absent primary is not a zero-confidence value,
+and selecting a different surviving fragment would change the plotted identity.
+The earlier saved confidence reference remains available locally at
+`results/moderate_two_emitter_blob_tracker.json` (E38 56/75 retention).
+
+```bash
+python3 plot_confidence_comparison.py \
+  results/moderate_two_emitter_blob_tracker.json \
+  results/integrated_baseline/moderate.json
+```
+
+This restores both recorded confidence views with explicit processing-path
+labels; it is not a like-for-like validation comparison. `AGENTS.md` records
+project-level handoff instructions so future work starts from these files,
+versions and known failures. The next investigation should isolate measurement
+changes between grouping variants before changing filter/lifecycle parameters.
