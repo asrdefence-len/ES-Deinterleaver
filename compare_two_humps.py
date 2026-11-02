@@ -13,56 +13,7 @@ from compare_aoa_batch import batch_aoa_populations
 from compare_multiscale_rf import group_window
 
 
-def measure(toa, bin_width=2., min_gap=10., max_gap=400., neighbourhood=0.15):
-    t=np.sort(np.asarray(toa,float))
-    gaps=np.diff(t)
-    gaps=gaps[(gaps>=min_gap)&(gaps<max_gap)]
-    if len(gaps)<4: return None,gaps,None,None,None
-    edges=np.arange(min_gap,max_gap+bin_width*1.01,bin_width)
-    counts,_=np.histogram(gaps,bins=edges)
-    # Identify local maxima; adjacent flat bins are treated as a single peak.
-    peaks=[]
-    for i in range(len(counts)):
-        if counts[i]==0: continue
-        left=counts[i-1] if i else -1
-        right=counts[i+1] if i+1<len(counts) else -1
-        if counts[i]>=left and counts[i]>=right:
-            peaks.append(i)
-    if not peaks: return None,gaps,counts,edges,None
-    peaks.sort(key=lambda i:(-counts[i],edges[i]))
-    first=peaks[0]
-    centre=lambda i:(edges[i]+edges[i+1])/2
-    primary=centre(first)
-    # Restrict the optional second hump to the same local PRI neighbourhood.
-    # This excludes distant missed-pulse multiples (2T, 3T), but a very broad
-    # jitter distribution or genuine stagger beyond 15% may be excluded.
-    nearby=[i for i in peaks[1:] if abs(centre(i)-primary)<=neighbourhood*primary
-            and abs(i-first)>=2]
-    second=nearby[0] if nearby else None
-    chosen=[first]+([second] if second is not None else [])
-    # Assign histogram bins around the selected hump(s), stopping at a local
-    # valley or a low-count boundary. A broad unimodal hump is one population.
-    # Limit each hump to its contiguous half-height support (min 1 count),
-    # preventing distant tails/multiples from contaminating the estimate.
-    selected=np.zeros(len(counts),dtype=bool)
-    for p in chosen:
-        threshold=max(1, int(np.ceil(counts[p]*0.5)))
-        left=right=p
-        while left>0 and counts[left-1]>=threshold:
-            left-=1
-        while right+1<len(counts) and counts[right+1]>=threshold:
-            right+=1
-        selected[left:right+1]=True
-    ids=np.searchsorted(edges,gaps,side="right")-1
-    keep=(ids>=0)&(ids<len(counts))&selected[np.clip(ids,0,len(counts)-1)]
-    used=gaps[keep]
-    if len(used)<2: return None,gaps,counts,edges,selected
-    mean=float(np.mean(used))
-    sd=float(np.std(used,ddof=1))
-    return dict(pri=mean,sd=sd,pct=100*sd/mean,n_used=len(used),
-                n_gaps=len(gaps),peak1=primary,
-                peak2=centre(second) if second is not None else float("nan"),
-                n_humps=len(chosen)),gaps,counts,edges,selected
+from testbed.pri_histogram import measure
 
 
 def main():

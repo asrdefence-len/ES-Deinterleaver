@@ -1,8 +1,9 @@
-"""Track two real Config 101 emitters from bounded blob-train measurements."""
+"""Track two source-recording Config 101 emitters from bounded blob-train measurements."""
 from __future__ import annotations
 
 import argparse
 from collections import Counter
+from dataclasses import asdict
 from contextlib import ExitStack
 import json
 import math
@@ -11,10 +12,11 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from compare_aoa_batch import batch_aoa_populations
-from compare_multiscale_rf import group_window
+from compare_aoa_batch import batch_aoa_populations, rf_pw_groups
+from compare_multiscale_rf import group_window as multiscale_group_window
 from run_cross_rf_confidence import circular_mean_deg, group_stats, select_groups
-from testbed.blob_observation import summarize_blob_trains
+from testbed.blob_observation import summarize_blob_trains, summarize_blob_pri
+from testbed.pipeline_provenance import run_manifest
 from testbed.blob_tracker import BlobEmitterTracker
 from testbed.pulse_association_pipeline import FixedPRIPulseAssociation, PulseMeasurement
 
@@ -43,7 +45,19 @@ def main():
     parser.add_argument("--scenario", choices=tuple(SCENARIOS), default="separated")
     parser.add_argument("--output", default="results/two_emitter_blob_tracker.json")
     parser.add_argument("--consistency-log", help="Stream branch-labelled Kalman diagnostics to JSONL")
+    parser.add_argument("--pipeline", choices=("integrated", "legacy"), default="integrated")
     args = parser.parse_args()
+    definitions = {name: dict(values) for name, values in SCENARIOS[args.scenario].items()}
+    if args.pipeline == "integrated":
+        definitions["E46"]["blobs"] = tuple(range(10, 34))
+        if "E38" in definitions:
+            definitions["E38"]["blobs"] = tuple(range(14, 26))
+        if "E33" in definitions:
+            definitions["E33"]["blobs"] = (128, 129)
+    def group_window(data, names, populations, count, *legacy_parameters):
+        return (rf_pw_groups(data, names, populations, count)
+            if args.pipeline == "integrated" else
+            multiscale_group_window(data, names, populations, count, *legacy_parameters))
     if args.window_size < 8:
         parser.error("Window size must be at least eight")
 
@@ -65,7 +79,7 @@ def main():
         recording_end_s = float(data_all[-1, columns["ToA"]] * 1e-6)
 
         families = {}
-        for name, definition in SCENARIOS[args.scenario].items():
+        for name, definition in definitions.items():
             seed_start = definition["seed_window"] * args.window_size
             seed_data = np.asarray(data_all[seed_start:seed_start + args.window_size], float)
             populations, count = batch_aoa_populations(seed_data[:, columns["AoA"]])
@@ -79,6 +93,8 @@ def main():
             if len(modes) != len(definition["blobs"]):
                 parser.error(f"One or more {name} seed blobs were not found")
             families[name] = {**definition, "frequency_modes_hz": modes,
+                "pulse_width_modes_s": sorted({seed_stats[blob]["pulse_width_s"]
+                    for blob in definition["blobs"]}),
                 "aoa_deg": circular_mean_deg(seed_data[mask, columns["AoA"]]),
                 "pulse_width_s": float(np.median(
                     seed_data[mask, columns["PulseWidth"]]) * 1e-6)}
@@ -86,6 +102,9 @@ def main():
         tracker = BlobEmitterTracker(max_gap_s=10.,
             max_tracks=16, beam_width=32, consolidation_min_updates=2,
             consolidation_gate_sigma=4., consistency_sink=sink)
+        manifest = run_manifest(args.file, grouping="hdbscan" if args.pipeline == "integrated" else "multiscale",
+            measurement_mode="histogram" if args.pipeline == "integrated" else "train",
+            settings=vars(args), tracker=tracker)
         association = FixedPRIPulseAssociation(
             tolerance_s=5. * 1e-6, min_pulses=6)
         track_ids = {}
@@ -104,9 +123,11 @@ def main():
             for name, family in families.items():
                 chosen_by_family[name] = ([] if window < family["seed_window"] else
                     list(family["blobs"]) if window == family["seed_window"] else
-                    select_groups(stats, modes=family["frequency_modes_hz"],
-                        aoa=family["aoa_deg"], pw=family["pulse_width_s"],
-                        rf_gate_hz=40e6, aoa_gate_deg=3., pw_gate_s=.12e-6))
+                    sorted({blob for pw in (family["pulse_width_modes_s"]
+                            if args.pipeline == "integrated" else [family["pulse_width_s"]])
+                        for blob in select_groups(stats, modes=family["frequency_modes_hz"],
+                            aoa=family["aoa_deg"], pw=pw,
+                            rf_gate_hz=40e6, aoa_gate_deg=3., pw_gate_s=.12e-6)}))
             chosen = sorted({blob for values in chosen_by_family.values() for blob in values})
             selected = np.isin(labels, chosen)
             window_observations = []
@@ -122,9 +143,14 @@ def main():
                     float(row[columns["PulseWidth"]] * 1e-6),
                     float(row[columns["AoA"]]))
                     for pdw_id, row in zip(selected_ids, selected_data))
-                trains, _, _ = association.process(pdws, selected_labels, f"W{window}")
-                window_observations = list(summarize_blob_trains(selected_data, names,
-                    selected_labels, selected_ids, f"W{window}", trains))
+                if args.pipeline == "integrated":
+                    trains = ()
+                    window_observations = list(summarize_blob_pri(selected_data, names,
+                        selected_labels, f"W{window}"))
+                else:
+                    trains, _, _ = association.process(pdws, selected_labels, f"W{window}")
+                    window_observations = list(summarize_blob_trains(selected_data, names,
+                        selected_labels, selected_ids, f"W{window}", trains))
                 for observation in window_observations:
                     candidates = [name for name, blob_ids in chosen_by_family.items()
                                   if observation.blob_id in blob_ids]
@@ -134,6 +160,10 @@ def main():
                     truth = np.asarray(truth_all[start:stop]).reshape(-1)
                     selected_lookup = {int(pdw_id): int(index)
                         for pdw_id, index in zip(selected_ids, selected_indices)}
+                    if args.pipeline == "integrated":
+                        for observation in window_observations:
+                            indices = np.flatnonzero(labels == observation.blob_id)
+                            train_truth_counts[observation.observation_id] = dict(Counter(map(int, truth[indices])))
                     for train in trains:
                         indices = [selected_lookup[int(pdw_id)]
                                    for pdw_id in train.observation.pdw_ids]
@@ -164,6 +194,7 @@ def main():
                         "frequency_hz": observation.frequency_median_hz,
                         "pri_s": observation.pri_s,
                         "pri_sigma_s": observation.pri_sigma_s,
+                        "pri_histogram": (None if observation.pri_histogram is None else asdict(observation.pri_histogram)),
                         "timing_rms_residual_s": observation.timing_rms_residual_s},
                     "truth_counts_eval": train_truth_counts.get(observation.observation_id, {})})
                 for name, track_id in track_ids.items():
@@ -267,7 +298,7 @@ def main():
         "total": sum(event["source_family"] == name for event in events)}
         for name in families}
 
-    result = {"truth_is_evaluation_only": True, "scenario": args.scenario,
+    result = {"run_manifest": manifest, "truth_is_evaluation_only": True, "scenario": args.scenario,
         "duration_s": duration_s,
         "track_ids": track_ids, "families": families, "monitor": monitor,
         "events": events, "evaluation_summary": scores,

@@ -20,7 +20,8 @@ import numpy as np
 from compare_aoa_batch import batch_aoa_populations, rf_pw_groups
 from compare_multiscale_rf import group_window
 from extend_config_pdws import feature_names
-from testbed.blob_observation import summarize_blobs
+from testbed.blob_observation import summarize_blob_pri
+from testbed.pipeline_provenance import run_manifest
 from testbed.blob_tracker import BlobEmitterTracker
 
 
@@ -127,7 +128,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("file")
     parser.add_argument("--window-size", type=int, default=10000)
-    parser.add_argument("--grouping", choices=("multiscale", "hdbscan"), default="multiscale")
+    parser.add_argument("--grouping", choices=("multiscale", "hdbscan"), default="hdbscan")
     parser.add_argument("--toa-scale", type=float, default=1e-6)
     parser.add_argument("--frequency-scale", type=float, default=1e6)
     parser.add_argument("--pw-scale", type=float, default=1e-6)
@@ -149,6 +150,9 @@ def main() -> None:
     tracker = BlobEmitterTracker(beam_width=args.beam_width,
         max_tracks=args.max_tracks, max_gap_s=args.max_gap,
         history_limit=max(256, args.max_tracks * 2))
+    manifest = run_manifest(args.file, grouping=args.grouping,
+        measurement_mode="histogram", settings=vars(args), tracker=tracker)
+    (output / "run_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     rows: list[dict] = []
     started = time.monotonic()
     first_time = None
@@ -174,7 +178,7 @@ def main() -> None:
                         if args.grouping == "multiscale"
                         else rf_pw_groups(data, names, populations, population_count))
             selected = blob_ids >= 0
-            observations = (summarize_blobs(data[selected], names, blob_ids[selected],
+            observations = (summarize_blob_pri(data[selected], names, blob_ids[selected],
                 f"W{window}", toa_scale=args.toa_scale,
                 frequency_scale=args.frequency_scale, pw_scale=args.pw_scale)
                 if np.any(selected) else ())

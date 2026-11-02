@@ -7,12 +7,13 @@ Bernoulli probability updated by measurement likelihood ratios and declared
 missed-detection opportunities. Model parameters still require calibration.
 Individual PDWs never cross this interface.
 """
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, asdict
 import math
 
 from scipy.stats import chi2
 
 from testbed.blob_observation import BlobObservation
+from testbed.pri_histogram import GapPRI
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,8 @@ class BlobTrack:
     last_nis_dof: int | None = None
     last_gate_threshold: float | None = None
     last_log_likelihood_ratio: float | None = None
+
+    pri_histogram: GapPRI | None = None
 
     @property
     def identity_log_odds(self):
@@ -204,6 +207,16 @@ class BlobEmitterTracker:
         if obs.pri_s is None or track.pri_s is None:
             return 0., None
         observed_variance = max(obs.pri_sigma_s ** 2, pri_floor ** 2)
+        if (obs.pri_histogram is None) != (track.pri_histogram is None):
+            return 0., None  # Different PRI statistics must not be compared.
+        if obs.pri_histogram is not None:
+            innovation = obs.pri_s - track.pri_s
+            variance = predicted_pri_variance + observed_variance
+            z = abs(innovation) / math.sqrt(variance)
+            return z * z, {"pri_z": z, "phase_z": 0.,
+                "innovation_s": innovation, "innovation_variance_s2": variance,
+                "phase_residual_s": None, "observed_harmonic": 1,
+                "track_harmonic": 1, "pri_model": "local_gap_humps_v1"}
         candidates = []
         for observed_harmonic in range(1, 5):
             for track_harmonic in range(1, 5):
@@ -342,7 +355,7 @@ class BlobEmitterTracker:
             (None if obs.pri_s is None else max(obs.pri_sigma_s ** 2,
                                                 self.pri_measurement_floor_s ** 2)),
             obs.phase_epoch_s, obs.timing_rms_residual_s, obs.window_id,
-            obs.window_id)
+            obs.window_id, pri_histogram=obs.pri_histogram)
 
     def _updated_track(self, track, obs, mode_index, statistics):
         mode = RFMode(obs.frequency_p05_hz, obs.frequency_median_hz,
@@ -376,7 +389,8 @@ class BlobEmitterTracker:
         if obs.pri_s is not None:
             observed_variance = max(obs.pri_sigma_s ** 2,
                                     self.pri_measurement_floor_s ** 2)
-            if pri is None:
+            if (pri is None or
+                    (obs.pri_histogram is None) != (track.pri_histogram is None)):
                 pri, pri_variance = obs.pri_s, observed_variance
             else:
                 predicted_pri = pri_variance + self.pri_q * dt
@@ -404,7 +418,9 @@ class BlobEmitterTracker:
             window_best_log_likelihood_ratio=window_best,
             last_nis=statistics["nis"], last_nis_dof=statistics["dof"],
             last_gate_threshold=statistics["gate_threshold"],
-            last_log_likelihood_ratio=log_lr)
+            last_log_likelihood_ratio=log_lr,
+            pri_histogram=(obs.pri_histogram if obs.pri_s is not None
+                           else track.pri_histogram))
 
     def _track_consolidation_compatible(self, parent, child):
         if (parent.updates < self.consolidation_parent_updates
@@ -426,9 +442,12 @@ class BlobEmitterTracker:
         if not rf_overlap:
             return False
         if parent.pri_s is not None and child.pri_s is not None:
+            if (parent.pri_histogram is None) != (child.pri_histogram is None):
+                return False
+            harmonics = (1,) if parent.pri_histogram is not None else range(1, 5)
             candidates = []
-            for parent_harmonic in range(1, 5):
-                for child_harmonic in range(1, 5):
+            for parent_harmonic in harmonics:
+                for child_harmonic in harmonics:
                     left = parent.pri_s / parent_harmonic
                     right = child.pri_s / child_harmonic
                     variance = ((parent.pri_variance_s2 or 0.) / parent_harmonic ** 2
@@ -463,7 +482,8 @@ class BlobEmitterTracker:
         if pri is None:
             pri, pri_variance = child.pri_s, child.pri_variance_s2
         elif child.pri_s is not None:
-            ratio = max(1, min(4, round(child.pri_s / pri)))
+            ratio = (1 if parent.pri_histogram is not None else
+                     max(1, min(4, round(child.pri_s / pri))))
             measurement = child.pri_s / ratio
             measurement_variance = (child.pri_variance_s2
                 or self.pri_measurement_floor_s ** 2) / ratio ** 2
@@ -472,6 +492,8 @@ class BlobEmitterTracker:
                 measurement, measurement_variance)
         latest = child if child.last_end_s >= parent.last_end_s else parent
         return replace(parent,
+            pri_histogram=(latest.pri_histogram if latest.pri_s is not None
+                           else parent.pri_histogram or child.pri_histogram),
             last_end_s=max(parent.last_end_s, child.last_end_s),
             aoa_deg=aoa, aoa_variance_deg2=aoa_variance,
             aoa_spread_deg=max(parent.aoa_spread_deg, child.aoa_spread_deg),
@@ -706,6 +728,8 @@ class BlobEmitterTracker:
                 "state": {"aoa_deg": track.aoa_deg,
                           "pw_median_s": track.pw_median_s,
                           "pri_s": track.pri_s,
+                          "last_pri_histogram": (None if track.pri_histogram is None
+                              else asdict(track.pri_histogram)),
                           "rf_modes_hz": [mode.median_hz for mode in track.rf_modes]},
             }
         if len(self.archived_tracks) > self.archive_limit:
@@ -774,6 +798,13 @@ class BlobEmitterTracker:
             "updates": track.updates,
             "track_confidence": track_confidence,
             "existence_probability": track_confidence,
+            "lifecycle_status": ("CONFIRMED" if track_confidence >= .8 else
+                "LOST" if track_confidence < .3 else
+                "TENTATIVE" if track.updates == 1 else "COASTING"),
+            "pri_model": ("local_gap_humps_v1" if track.pri_histogram is not None
+                          else "fixed_train" if track.pri_s is not None else None),
+            "last_pri_histogram": (None if track.pri_histogram is None
+                                   else asdict(track.pri_histogram)),
             # Compatibility aliases for existing result readers.
             "identity_confidence": track_confidence,
             "existence_confidence": track_confidence,

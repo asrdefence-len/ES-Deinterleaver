@@ -4,8 +4,10 @@ Only bounded summary features cross the tracker interface. No pulse list,
 TOA sequence, truth label, or pulse reassignment is present. Optional timing
 fields are produced upstream by pulse-train analysis inside a frozen blob.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
+
+from testbed.pri_histogram import GapPRI, estimate_gap_pri
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class BlobObservation:
     timing_rms_residual_s: float | None = None
     timing_pulse_count: int | None = None
 
+    pri_histogram: GapPRI | None = None
+
     def __post_init__(self):
         numbers = (self.start_s, self.end_s, self.aoa_deg, self.aoa_spread_deg,
             self.frequency_p05_hz, self.frequency_median_hz, self.frequency_p95_hz,
@@ -43,7 +47,14 @@ class BlobObservation:
                 or not 0 < self.frequency_p05_hz <= self.frequency_median_hz <= self.frequency_p95_hz
                 or not 0 < self.pw_p05_s <= self.pw_median_s <= self.pw_p95_s):
             raise ValueError("Invalid blob observation")
-        if any(value is not None for value in timing):
+        if self.pri_histogram is not None:
+            if (not isinstance(self.pri_histogram, GapPRI)
+                    or self.pri_s != self.pri_histogram.mean_s
+                    or self.pri_sigma_s != self.pri_histogram.measurement_sigma_s
+                    or any(v is not None for v in (self.train_id, self.phase_epoch_s,
+                        self.timing_rms_residual_s, self.timing_pulse_count))):
+                raise ValueError("Invalid histogram PRI observation")
+        elif any(value is not None for value in timing):
             if (self.train_id is None or any(value is None for value in timing)
                     or not all(math.isfinite(value) for value in timing[:-1])
                     or self.pri_s <= 0 or self.pri_sigma_s <= 0
@@ -149,3 +160,28 @@ def summarize_blob_trains(data, feature_names, labels, pdw_ids, window_id,
                 timing_rms_residual_s=train.rms_residual_s,
                 timing_pulse_count=len(indices)))
     return tuple(sorted(output, key=lambda o: (o.start_s, o.observation_id)))
+
+
+def summarize_blob_pri(data, feature_names, labels, window_id, *,
+                       toa_scale=1e-6, frequency_scale=1e6, pw_scale=1e-6,
+                       bin_width_s=2e-6, min_gap_s=10e-6,
+                       max_gap_s=400e-6, neighbourhood=.15):
+    """One summary per frozen blob, including bounded local gap statistics.
+
+    No pulse extraction, phase invention, re-clustering or membership changes.
+    Insufficient timing support leaves a timing-blind whole-blob observation.
+    """
+    import numpy as np
+    base = summarize_blobs(data, feature_names, labels, window_id,
+        toa_scale=toa_scale, frequency_scale=frequency_scale, pw_scale=pw_scale)
+    x, lab = np.asarray(data, float), np.asarray(labels)
+    toa_index = list(feature_names).index("ToA")
+    output = []
+    for observation in base:
+        histogram = estimate_gap_pri(x[lab == observation.blob_id, toa_index] * toa_scale,
+            bin_width_s=bin_width_s, min_gap_s=min_gap_s,
+            max_gap_s=max_gap_s, neighbourhood=neighbourhood)
+        output.append(observation if histogram is None else replace(observation,
+            pri_s=histogram.mean_s, pri_sigma_s=histogram.measurement_sigma_s,
+            pri_histogram=histogram))
+    return tuple(output)

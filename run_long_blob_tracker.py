@@ -2,7 +2,7 @@
 
 The seed blobs define the development signal without exposing truth to the
 tracker. Every later window is screened using the seed RF/AOA/PW envelope,
-then pulse-train summaries—not PDWs—are sent to the persistent tracker.
+then bounded gap-PRI blob summaries are sent to the persistent tracker.
 """
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from compare_aoa_batch import batch_aoa_populations
-from compare_multiscale_rf import group_window
+from compare_aoa_batch import batch_aoa_populations, rf_pw_groups
+from compare_multiscale_rf import group_window as multiscale_group_window
 from run_cross_rf_confidence import circular_mean_deg, group_stats, select_groups
-from testbed.blob_observation import summarize_blob_trains
+from testbed.blob_observation import summarize_blob_trains, summarize_blob_pri
+from testbed.pipeline_provenance import run_manifest
 from testbed.blob_tracker import BlobEmitterTracker
 from testbed.pulse_association_pipeline import FixedPRIPulseAssociation, PulseMeasurement
 
@@ -27,10 +28,19 @@ def main():
     parser.add_argument("file")
     parser.add_argument("--window-size", type=int, default=10000)
     parser.add_argument("--seed-window", type=int, default=0)
-    parser.add_argument("--seed-blobs", type=int, nargs="+", default=list(range(8, 16)))
+    parser.add_argument("--seed-blobs", type=int, nargs="+", default=None)
     parser.add_argument("--evaluation-truth-id", type=int, default=46)
     parser.add_argument("--output", default="results/long_blob_tracker_e46.json")
+    parser.add_argument("--pipeline", choices=("integrated", "legacy"), default="integrated")
     args = parser.parse_args()
+    if args.seed_blobs is None:
+        if args.seed_window != 0 or args.window_size != 10000:
+            parser.error("Supply explicit seed blobs when changing the seed window or window size")
+        args.seed_blobs = list(range(10, 34) if args.pipeline == "integrated" else range(8, 16))
+    def group_window(data, names, populations, count, *legacy_parameters):
+        return (rf_pw_groups(data, names, populations, count)
+            if args.pipeline == "integrated" else
+            multiscale_group_window(data, names, populations, count, *legacy_parameters))
     if args.window_size < 8 or args.seed_window < 0:
         parser.error("Invalid window configuration")
 
@@ -61,9 +71,13 @@ def main():
             parser.error("One or more seed blobs were not found")
         seed_aoa = circular_mean_deg(seed_data[seed_mask, aoa_col])
         seed_pw_s = float(np.median(seed_data[seed_mask, pw_col]) * 1e-6)
+        seed_pw_modes = sorted({seed_stats[blob]["pulse_width_s"] for blob in args.seed_blobs})
 
         tracker = BlobEmitterTracker(max_gap_s=10.,
             max_tracks=16, beam_width=16)
+        manifest = run_manifest(args.file, grouping="hdbscan" if args.pipeline == "integrated" else "multiscale",
+            measurement_mode="histogram" if args.pipeline == "integrated" else "train",
+            settings=vars(args), tracker=tracker)
         association = FixedPRIPulseAssociation(
             tolerance_s=5. * 1e-6, min_pulses=6)
         primary_track_id = None
@@ -80,9 +94,11 @@ def main():
             populations, count = batch_aoa_populations(data[:, aoa_col])
             labels = group_window(data, names, populations, count, 8, .20, 6., 8)
             stats = group_stats(data, names, labels)
-            chosen = (list(args.seed_blobs) if window == args.seed_window else
-                select_groups(stats, modes=modes, aoa=seed_aoa, pw=seed_pw_s,
-                    rf_gate_hz=40e6, aoa_gate_deg=3., pw_gate_s=.12e-6))
+            chosen = ([] if window < args.seed_window else
+                list(args.seed_blobs) if window == args.seed_window else
+                sorted({blob for pw in (seed_pw_modes if args.pipeline == "integrated" else [seed_pw_s])
+                    for blob in select_groups(stats, modes=modes, aoa=seed_aoa, pw=pw,
+                        rf_gate_hz=40e6, aoa_gate_deg=3., pw_gate_s=.12e-6)}))
             selected = np.isin(labels, chosen)
             observations = ()
             unexplained_count = 0
@@ -97,11 +113,13 @@ def main():
                     float(row[toa_col] * 1e-6), float(row[rf_col] * 1e6),
                     float(row[pw_col] * 1e-6), float(row[aoa_col]))
                     for pdw_id, row in zip(selected_ids, selected_data))
-                trains, unexplained, _ = association.process(
-                    pdws, selected_labels, f"W{window}")
-                unexplained_count = len(unexplained)
-                observations = summarize_blob_trains(selected_data, names,
-                    selected_labels, selected_ids, f"W{window}", trains)
+                if args.pipeline == "integrated":
+                    observations = summarize_blob_pri(selected_data, names, selected_labels, f"W{window}")
+                else:
+                    trains, unexplained, _ = association.process(pdws, selected_labels, f"W{window}")
+                    unexplained_count = len(unexplained)
+                    observations = summarize_blob_trains(selected_data, names,
+                        selected_labels, selected_ids, f"W{window}", trains)
                 for observation in observations:
                     tracker.process(observation)
                     best = tracker.hypotheses[0]
@@ -168,7 +186,7 @@ def main():
                     "selected_truth_pulses": int(np.sum(
                         selected_truth == args.evaluation_truth_id))})
 
-    result = {"truth_is_evaluation_only": True,
+    result = {"run_manifest": manifest, "truth_is_evaluation_only": True,
         "duration_s": recording_end_s - origin_s,
         "recording_windows": windows,
         "primary_track_id": primary_track_id,

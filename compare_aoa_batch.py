@@ -69,7 +69,7 @@ def rf_pw_groups(x, names, populations, npop, mcs=8, ms=8):
         ii = np.flatnonzero(populations == pop)
         if len(ii) < mcs:
             continue
-        local = HDBSCAN(min_cluster_size=mcs, min_samples=ms).fit_predict(z[ii])
+        local = HDBSCAN(min_cluster_size=mcs, min_samples=ms, copy=True).fit_predict(z[ii])
         for lab in np.unique(local[local >= 0]):
             pred[ii[local == lab]] = gid
             gid += 1

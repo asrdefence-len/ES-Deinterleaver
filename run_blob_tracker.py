@@ -1,10 +1,7 @@
-"""Track fixed-membership blob observations, without pulse-train discovery.
+"""Supported AOA + RF/PW HDBSCAN → local gap-PRI summary → Kalman tracker.
 
-python3 run_blob_tracker.py turing_data/config_101.h5 \
-  --window 0 --blobs 9 11 12 --output results/blob_tracker_focus
-
-The grouping adapter summarizes each original blob ONCE. The tracker sees
-only those bounded summaries. It cannot access or reassign individual PDWs.
+One summary per frozen blob is the default. Legacy multiscale grouping and
+fixed-train extraction require explicit flags and are marked in the manifest.
 """
 import argparse
 from collections import Counter
@@ -18,7 +15,8 @@ import numpy as np
 
 from compare_aoa_batch import batch_aoa_populations, rf_pw_groups
 from compare_multiscale_rf import group_window
-from testbed.blob_observation import summarize_blobs, summarize_blob_trains
+from testbed.blob_observation import summarize_blobs, summarize_blob_trains, summarize_blob_pri
+from testbed.pipeline_provenance import run_manifest
 from testbed.blob_tracker import BlobEmitterTracker
 from testbed.pulse_association_pipeline import FixedPRIPulseAssociation, PulseMeasurement
 
@@ -37,9 +35,15 @@ def main():
     ap.add_argument("--windows", type=int, default=1, help="0 means all remaining windows")
     ap.add_argument("--window-size", type=int, default=10000)
     ap.add_argument("--blobs", nargs="+", type=int)
-    ap.add_argument("--grouping", choices=("multiscale", "hdbscan"), default="multiscale")
-    ap.add_argument("--measurement-mode", choices=("train", "blob"), default="train",
-                    help="train adds bounded PRI/timing evidence inside each frozen blob")
+    ap.add_argument("--grouping", choices=("multiscale", "hdbscan"), default="hdbscan")
+    ap.add_argument("--measurement-mode", choices=("histogram", "train", "blob"), default="histogram",
+                    help="histogram exports local gap mean, spread and up to two humps")
+    ap.add_argument("--pri-bin-us", type=float, default=2.)
+    ap.add_argument("--pri-min-gap-us", type=float, default=10.)
+    ap.add_argument("--pri-max-gap-us", type=float, default=400.)
+    ap.add_argument("--pri-neighbourhood", type=float, default=.15)
+    ap.add_argument("--max-gap-s", type=float, default=.3)
+    ap.add_argument("--consistency-log", action="store_true")
     ap.add_argument("--toa-scale", type=float, default=1e-6)
     ap.add_argument("--frequency-scale", type=float, default=1e6)
     ap.add_argument("--pw-scale", type=float, default=1e-6)
@@ -55,12 +59,22 @@ def main():
         ap.error("Blob IDs are window-local; select --blobs for one window only")
     if not all(np.isfinite(v) and v > 0 for v in (a.toa_scale, a.frequency_scale, a.pw_scale)):
         ap.error("Unit scales must be finite and positive")
+    if (not 0 <= a.pri_min_gap_us < a.pri_max_gap_us or a.pri_bin_us <= 0
+            or not 0 < a.pri_neighbourhood < 1):
+        ap.error("Invalid PRI histogram settings")
     tracker = BlobEmitterTracker(beam_width=a.beam_width, max_tracks=a.max_tracks,
-        max_modes=a.max_modes, ambiguity_margin=a.ambiguity_margin)
+        max_modes=a.max_modes, ambiguity_margin=a.ambiguity_margin, max_gap_s=a.max_gap_s)
     out = Path(a.output)
     out.mkdir(parents=True, exist_ok=True)
+    manifest = run_manifest(a.file, grouping=a.grouping,
+        measurement_mode=a.measurement_mode, settings=vars(a), tracker=tracker)
+    (out / "run_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print("Pipeline:", json.dumps(manifest["pipeline"]), flush=True)
     observations_rows, decisions, evaluations, windows, monitor_rows = [], [], [], [], []
-    with h5py.File(a.file) as h, (out / "hypotheses.jsonl").open("w") as history:
+    with h5py.File(a.file) as h, (out / "hypotheses.jsonl").open("w") as history, \
+            (out / "consistency.jsonl").open("w") as consistency:
+        if a.consistency_log:
+            tracker.consistency_sink = lambda event: consistency.write(json.dumps(event, allow_nan=False) + "\n")
         names = [v.decode() if isinstance(v, bytes) else str(v)
                  for v in h["metadata/feature_names"][:]]
         if not {"ToA", "Frequency", "PulseWidth", "AoA"}.issubset(names):
@@ -79,7 +93,7 @@ def main():
                 if a.grouping == "multiscale" else rf_pw_groups(x, names, populations, npop))
             immutable_membership = original.copy()
             selected = np.isin(original, a.blobs) if a.blobs is not None else original >= 0
-            if not np.any(selected):
+            if not np.any(selected) and a.blobs is not None:
                 ap.error(f"No selected blobs in window {wi}")
             # This is grouping-stage feature export, not tracker PDW processing.
             selected_data = x[selected]
@@ -117,9 +131,15 @@ def main():
                             selected_lookup[int(pdw_id)] for pdw_id in
                             train_by_id[obs.train_id].observation.pdw_ids], int)
             else:
-                observations = summarize_blobs(selected_data, names,
+                summarizer = summarize_blob_pri if a.measurement_mode == "histogram" else summarize_blobs
+                pri_settings = ({"bin_width_s": a.pri_bin_us * 1e-6,
+                    "min_gap_s": a.pri_min_gap_us * 1e-6,
+                    "max_gap_s": a.pri_max_gap_us * 1e-6,
+                    "neighbourhood": a.pri_neighbourhood}
+                    if a.measurement_mode == "histogram" else {})
+                observations = summarizer(selected_data, names,
                     selected_labels, f"W{wi}", toa_scale=a.toa_scale,
-                    frequency_scale=a.frequency_scale, pw_scale=a.pw_scale)
+                    frequency_scale=a.frequency_scale, pw_scale=a.pw_scale, **pri_settings)
                 evaluation_indices = {obs.observation_id: np.flatnonzero(
                     original == obs.blob_id) for obs in observations}
             for obs in observations:
@@ -135,6 +155,7 @@ def main():
                     "end_s": obs.end_s, "pulse_count": obs.pulse_count,
                     "measurement": {"pri_s": obs.pri_s,
                         "pri_sigma_s": obs.pri_sigma_s,
+                        "pri_histogram": (None if obs.pri_histogram is None else asdict(obs.pri_histogram)),
                         "timing_rms_residual_s": obs.timing_rms_residual_s,
                         "timing_pulse_count": obs.timing_pulse_count},
                     "status": options["status"],

@@ -1,153 +1,139 @@
-# Whole-blob observations as tracker input
+# Supported blob-tracking integration
 
-This is the selected tracking path: analyze a completed candidate blob, export
-one bounded summary per discovered pulse train, then associate those summaries
-with emitter hypotheses. A blob with no supported train falls back to one
-whole-blob summary. The tracker cannot see individual PDWs or modify blob or
-train membership; timing analysis remains upstream of the tracker boundary.
+The supported path is:
 
-## Run using the usual workflow
+**PDWs → circular AOA density populations → RF/PW HDBSCAN → frozen blobs → local gap-PRI mean/spread/humps → bounded observation → Kalman tracker → basic track management.**
 
-From DEINT on `main`, in your normal Python environment:
+This is an integration baseline. It verifies which components run together;
+it does not establish calibrated uncertainty or acceptable emitter retention.
+See [integration status](integration_status.md) for acceptance checks and known failures.
+
+## Entry points
 
 ```bash
-git pull
 python3 -m pip install -r requirements-experiments.txt
-python3 -u run_blob_tracker.py turing_data/config_101.h5 \
-  --window 0 --blobs 9 11 12 --output results/blob_tracker_focus
+python3 run_blob_tracker.py turing_data/config_101.h5 \
+  --windows 4 --output results/integrated_baseline/full_scene_first4
+python3 run_two_emitter_blob_tracker.py turing_data/config_101.h5 \
+  --scenario moderate --output results/integrated_baseline/moderate.json \
+  --consistency-log results/integrated_baseline/moderate_consistency.jsonl
+python3 run_live_blob_tracker.py turing_data/config_101_60s_gaps.h5 \
+  --no-live --playback-rate 0 --output results/integrated_baseline/live
 ```
 
-`--measurement-mode train` is the default and exports PRI, PRI uncertainty,
-phase epoch, timing RMS residual and pulse support. Use `--measurement-mode
-blob` only for the earlier timing-blind comparison.
+These entry points and `run_long_blob_tracker.py` default to the supported
+integration. The general runner's defaults are `--grouping hdbscan` and
+`--measurement-mode histogram`. The old combination requires explicit
+`--grouping multiscale --measurement-mode train`; the seeded runners require
+`--pipeline legacy`. Those alternatives are marked unsupported in the run
+manifest. Other historical scripts remain experiments, not supported entry points.
 
-Default grouping is the existing AOA + multiscale RF path, matching the
-window-local IDs in the earlier plots. To use the separate AOA + RF/PW
-HDBSCAN implementation, specify `--grouping hdbscan` and use its group IDs.
+Blob IDs belong to one grouping implementation and one window. The integrated
+Config 101 two-emitter benchmark seeds E46 from Window 0 / HDBSCAN blobs 10–33,
+E38 from Window 3 / blobs 14–25, or E33 from Window 0 / blobs 128–129. These are
+controlled development selections; the tracker never reads truth to associate
+measurements. Old multiscale blob IDs must not be reused with HDBSCAN.
+The seeds retain RF and PW exemplars; later candidate selection is the union
+of their measurement envelopes. HDBSCAN's RF/PW split changes the observations,
+so measurement-retention counts cannot be compared directly with the legacy
+fixed-train counts.
 
-To carry hypotheses through two consecutive complete windows:
+## Grouping
 
-```bash
-python3 -u run_blob_tracker.py turing_data/config_101.h5 \
-  --windows 2 --output results/blob_tracker_first2
-```
+`compare_aoa_batch.batch_aoa_populations` estimates circular AOA-density peaks
+in independent 10,000-PDW windows. `compare_aoa_batch.rf_pw_groups` then applies
+`sklearn.cluster.HDBSCAN` to the existing scaled RF/PW features within each
+AOA population (`min_cluster_size=8`, `min_samples=8`). Noise label -1 is not
+promoted into a measurement. Window-local labels are frozen before timing
+analysis and are never edited by the tracker.
 
-Omit `--blobs` for multiwindow runs: blob IDs do not identify the same
-emitter in subsequent windows. `--windows 0` processes all remaining windows.
-The default 10,000-PDW window size introduces grouping-window latency.
+This path can split different PW modes or parts of a broad RF distribution
+into separate blobs. It is not a guarantee that each blob or each track
+corresponds to one complete physical emitter.
 
-For a persistent single-signal development run over the full Config 101
-duration, use `run_long_blob_tracker.py`. It retains the same identity while
-evidence is absent, predicts covariance forward and applies explicit expected
-detection opportunities through long quiet intervals.
+## PRI estimator and input boundary
 
-## Input boundary
+`testbed.pri_histogram.measure` is the original one/two-neighbouring-hump
+algorithm moved out of `compare_two_humps.py`. The diagnostic imports that
+same implementation, preventing a second copy from drifting. Defaults remain
+2 µs bins, gaps from 10 to 400 µs, an optional second peak within 15% of the
+primary peak, and contiguous half-height support. The general runner exposes
+those settings as `--pri-bin-us`, `--pri-min-gap-us`, `--pri-max-gap-us` and
+`--pri-neighbourhood`.
 
-`summarize_blob_trains` is a grouping-stage adapter. It visits the discovered
-train membership once to export a frozen `BlobObservation` containing:
+`testbed.blob_observation.summarize_blob_pri` exports one frozen observation
+per blob, containing circular AOA mean/spread, RF and PW quantiles, activity
+times, pulse count and, when supported, this bounded `GapPRI` summary:
 
-- Unique observation/window/blob reference, start/end time and pulse count.
-- Circular AOA mean and angular spread.
-- Frequency 5th percentile, median and 95th percentile.
-- Pulse-width 5th percentile, median and 95th percentile.
-- Optional train ID, PRI and uncertainty, phase epoch, timing residual and
-  timing support count.
+- Selected observed-gap mean and sample standard deviation, in seconds.
+- One or two peak centres, selected/in-range gap counts and estimator settings.
+- Initial measurement sigma: `max(selected-gap SD, bin_width/sqrt(12), 0.05 µs)`.
+  The tracker also applies its existing 1 µs PRI measurement floor.
 
-There may be multiple train summaries from a mixed blob. The upstream timing
-stage performs that split without changing the original blob labels; label -1
-is never promoted. Unexplained pulses remain explicitly counted. The caller
-retains the original data, blob labels and train memberships. The tracker only
-receives summaries—not arrays, PDW references or TOA sequences.
+The last rule is an explicit, conservative initial dispersion/binning proxy.
+It is **not a calibrated standard error**; support does not shrink it by
+`sqrt(N)`. Peak locations and the selected-bin SD are not proof of a true
+fundamental PRI or an unbiased jitter distribution. Missing pulses, per-RF
+sampling, PW splits and histogram truncation affect these statistics. The
+original 10 µs lower limit can exclude short jittered gaps; it remains an
+exposed estimator limitation, not a silently retuned parameter.
 
-Default raw units are microseconds for TOA/PW, MHz for RF, degrees for AOA.
-`--toa-scale`, `--frequency-scale`, and `--pw-scale` convert other raw units
-to seconds/Hz. Angular spread and PW width are feature dispersion measures,
-not calibrated measurement-uncertainty or association probabilities.
+No fixed pulse-train extraction or phase estimate is inserted into the default
+path. Unsupported timing produces an AOA/RF/PW observation with PRI absent.
+Multiple humps are retained as metadata; they are not interpreted as separate
+emitters. The tracker consumes only bounded summaries, never pulse lists,
+truth IDs or TOA sequences. Default raw units are µs for TOA/PW, MHz for RF and
+degrees for AOA; the adapter converts to SI.
 
-## Association hypotheses
+## Kalman state and association
 
-`BlobEmitterTracker` maintains a bounded beam of whole-blob associations.
-Compatibility uses time continuity, circular AOA and pulse-width summaries.
-Each retained track now carries AOA, pulse-width and PRI covariance. Covariance is
-predicted across gaps, converted into dynamic association gates and contracted
-with Kalman updates when a compatible blob arrives. The available AOA, PW and
-PRI innovations form a joint diagonal innovation covariance `S`; their NIS is
-gated against a chi-square threshold at the configured probability.
+`BlobEmitterTracker` predicts diagonal random-walk covariance for circular
+AOA, pulse width and available PRI. An observation forms innovation `ν` and
+`S = P⁻ + R`; joint NIS is compared with the configured chi-square gate.
+Accepted branches update the state with `K = P⁻ / S` and contract covariance.
 
-Track confidence is the Bernoulli posterior probability that the emitter track
-exists. An accepted measurement updates its odds using the Gaussian innovation
-likelihood, detection probability, RF-mode probability and expected clutter per
-gate. Every opportunity first predicts existence with `r- = P_S r`. A completed
-opportunity with no accepted measurement then applies
-`r+ = (1-P_D)r- / (1-P_D r-)`. Long time gaps insert expected opportunities at
-the configured cadence. There is no fixed hit reward or arbitrary time-decay
-confidence curve. `Q`, `R`, `P_S`, `P_D`, clutter rate and RF-mode probabilities
-remain explicit model parameters that must be calibrated.
-An existing RF mode has a 5-MHz interval-gap gate; a distant frequency is
-considered as a possible new mode of the same emitter as well as a possible
-new emitter. PRI harmonic compatibility is evaluated across factors one to
-four. Phase continuity is mode-specific: different RF modes may occupy
-different phase offsets, while a returning known RF mode is checked against
-its previous phase. Overlapping observations are permitted on one emitter track.
+Histogram inputs compare their selected-gap means **directly**, with harmonic
+factors 1:1. Fixed-train harmonics remain available only on the explicit legacy
+path. A fixed-train PRI and a histogram-gap mean are different statistics:
+when changing models, no mixed-statistic PRI innovation is scored and the PRI
+state is reinitialized. Track consolidation likewise does not harmonic-scale
+histogram means. The last bounded histogram summary survives monitoring and
+archival, separate from the filtered state estimate.
 
-Measurement covariance combines track prediction covariance with blob-derived
-measurement variance and fixed sensor floors. The default maximum temporal gap
-is 0.3 seconds. The new-emitter branch retains an explicit birth prior cost.
-Frequency hopping is represented by discrete known-mode/new-mode probabilities,
-not forced into the continuous Kalman state. Phase remains mode metadata and is
-not yet included in the Gaussian state likelihood.
+The bounded association beam retains known RF mode, new mode, birth and
+capacity-unresolved explanations. Relative beam weights are not calibrated
+probabilities. The optional consistency stream labels incoming hypothesis
+rank; an `accepted` record means an update branch was constructed before beam
+pruning, not necessarily that it became the winning association.
 
-Retained hypotheses within relative negative-log cost 5 of the best are called plausible.
-If they disagree about an observation's identity, its status is AMBIGUOUS.
-Even agreement is only PROVISIONAL. Similar AOA/PW and activity spans do not
-prove a common physical emitter; co-located independent sources can be
-indistinguishable from these summaries alone. No truth labels enter costs,
-gates, births or decisions. Transmitter configurations are not consulted.
+## Basic track management
 
-## Bounded work and memory
+The same tracker performs birth, Bernoulli existence updates, missed-opportunity
+updates, confirmed/coasting/lost monitoring, stale-track archival, capacity
+limits and fragment consolidation with aliases. IDs are never reused.
+`track_monitor` exposes `lifecycle_status`; a new track is tentative, confidence
+≥0.8 is confirmed, below 0.3 is lost, and other established tracks are coasting.
+Archived records retain identity and last-state metadata but do not participate
+in association. Dormant identity memory and archive reacquisition are not implemented.
 
-Defaults cap the tracker at 16 hypotheses, 64 active tracks per hypothesis,
-8 RF-mode summaries per track, 4 existing-track match branches per update,
-256 recent associations and 16 recent blob references per track. RF-mode
-memory keeps the most recently added mode summaries when full; an additional
-mode does not itself force a new emitter. Expired tracks leave active state.
-When active capacity is exhausted, an unresolved alternative is retained
-rather than requiring an incompatible association.
+Default archive policy remains existence below 0.3 and stale at least 0.5 s,
+or expiry beyond `max_gap_s`. The general runner defaults to a 0.3 s maximum
+gap; the seeded development runners use 10 s. These settings and every other
+numeric tracker parameter are recorded. Detection opportunities, survival,
+detection and clutter priors remain nominal; the integration does not retune
+them or assert that their persistence policy is suitable for ELINT.
 
-Tracks below the configured existence-probability threshold are removed from active
-association after a stale interval and retained in a bounded audit archive.
-Tentative fragments can consolidate into a mature parent after repeated
-covariance-gated AOA/PW agreement, shared RF support and PRI/harmonic
-compatibility. Consolidation records an alias; it never changes blob or train
-membership, and distant tracks remain separate.
+## Outputs and provenance
 
-Tracker input size and per-update workload are independent of the number
-of pulses inside a blob. Grouping and summary export still process those
-pulses once. Trace files can grow on disk while internal tracker state stays
-bounded. Hypothesis/mode/history truncation loses information; it does not
-guarantee that the true interpretation survives every difficult scenario.
+The general runner writes observation/association/evaluation CSVs, window
+accounting, `blob_monitor.jsonl`, hypothesis history, final snapshot and
+`config.json`. `--consistency-log` enables candidate-level diagnostics.
+`run_manifest.json` identifies component functions, grouping/PRI/tracker
+settings, Git revision/branch/dirty state, source-file hashes, dependency
+versions and the input dataset SHA-256. Seeded runners embed this manifest in
+their JSON result. Live playback writes it beside its history and snapshot.
 
-## Outputs
-
-| File | Contents |
-|---|---|
-| `blob_observations.csv` | The fixed-size input summaries |
-| `blob_associations.csv` | Status and candidate track IDs at the end of each processed window |
-| `hypotheses.jsonl` | Bounded hypothesis snapshots after each window |
-| `blob_monitor.jsonl` | Confidence, covariance and gates after each blob update |
-| `tracker_snapshot.json` | Final retained state and configured limits |
-| `windows.csv` | Blob/PDW accounting and possible track counts for the selected observations |
-| `blob_evaluation.csv` | Truth composition, read only after inference |
-| `config.json` | Run settings |
-
-Hypotheses may revise associations as evidence arrives. This changes an
-emitter explanation, never the pulses belonging to an input blob. Previously
-written rows describe the decision at their output time; snapshots provide
-the later retained explanation. Observations older than the bounded history
-are reported as OUTSIDE_RETAINED_HISTORY instead of inventing a decision.
-
-For the focused three-blob test, check whether a common-emitter explanation
-is retained alongside alternatives. Retention is not confirmation. A mixed
-input blob is still one observation here: this tracker cannot repair its
-internal contamination. Ambiguity may require later evidence or an explicit
-operator diagnostic, not automatic reopening of PDWs.
+A result produced from a dirty tree is identifiable by its source hashes; a
+release benchmark should be run from a clean committed tree. Results/data are
+kept outside Git. A compact, versioned benchmark record preserves the metrics,
+input identity, code identity and local artifact locations.

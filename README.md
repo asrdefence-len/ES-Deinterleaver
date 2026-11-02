@@ -21,62 +21,37 @@ The output folder contains `observations.csv`, `truth.csv`, `assignments.csv`, `
 
 **Important:** The baseline is deliberately simple: it does not solve PRI ambiguity, frequency hopping, overlapping IQ pulses, or waveform-assisted association. AOA is simulated, not measured by hardware. Scoring uses truth only after deinterleaving.
 
-## Whole-blob emitter tracking
+## Supported emitter-tracking integration
 
-The [blob-derived tracker](docs/blob_tracking.md) consumes bounded train
-summaries produced inside fixed-membership blobs. It associates observations
-without exposing individual pulses to the tracker and retains ambiguity.
+The supported path is **AOA density → RF/PW HDBSCAN → frozen blobs → local
+PRI gap mean/spread/one-or-two humps → Kalman tracker → basic track management**.
+See [the processing contract](docs/blob_tracking.md) and
+[integration status](docs/integration_status.md).
 
 ```bash
 python3 -m pip install -r requirements-experiments.txt
 python3 run_blob_tracker.py turing_data/config_101.h5 \
-  --window 0 --blobs 9 11 12 --output results/blob_tracker_focus
-python3 plot_blob_tracker_monitor.py \
-  results/blob_tracker_focus/blob_monitor.jsonl
-```
-
-This is the primary tracker path. Each frozen blob is analyzed upstream and
-exports one bounded summary per supported pulse train. PRI, harmonic and
-mode-specific phase evidence contribute to association. Covariance, dynamic
-gates and confidence update once per summary; raw-PDW gating is reserved for
-optional sparse recovery and is not the normal tracker input.
-
-Run the seeded E46 development track across the complete Config 101 recording,
-including explicit 0.1-second coast monitoring through the long final gap:
-
-```bash
-python3 run_long_blob_tracker.py turing_data/config_101.h5 \
-  --output results/long_blob_tracker_e46.json
-python3 plot_long_blob_tracker.py results/long_blob_tracker_e46.json \
-  --output results/long_blob_tracker_e46.png
-```
-
-The seed RF/AOA/PW envelope selects later candidate blobs without using truth.
-Truth is read only after tracking for coverage and purity evaluation.
-
-Run the first two-real-emitter baseline with E46 and the clearly separated
-Config 101 E33 signal:
-
-```bash
+  --windows 4 --output results/integrated_baseline/full_scene_first4
 python3 run_two_emitter_blob_tracker.py turing_data/config_101.h5 \
-  --output results/two_emitter_blob_tracker.json
-python3 plot_two_emitter_blob_tracker.py \
-  results/two_emitter_blob_tracker.json \
-  --output results/two_emitter_blob_tracker.png
+  --scenario moderate --output results/integrated_baseline/moderate.json \
+  --consistency-log results/integrated_baseline/moderate_consistency.jsonl
+python3 -m pytest -q
 ```
 
-Run the moderate-separation scenario with E46 and real Config 101 E38. E38
-is seeded from its clean Window 3 / Blob 6 observation rather than the mixed
-Window 0 group:
+The general, live, long and two-emitter blob runners default to this integration.
+Every run records the chosen components, code version/hashes, dataset hash,
+settings and dependency versions. The general runner requires explicit
+`--grouping multiscale --measurement-mode train` for the old path; seeded
+runners require `--pipeline legacy`. Old blob IDs are not interchangeable
+with HDBSCAN IDs.
 
-```bash
-python3 run_two_emitter_blob_tracker.py turing_data/config_101.h5 \
-  --scenario moderate \
-  --output results/moderate_two_emitter_blob_tracker.json
-python3 plot_two_emitter_blob_tracker.py \
-  results/moderate_two_emitter_blob_tracker.json \
-  --output results/moderate_two_emitter_blob_tracker.png
-```
+The histogram estimator is shared with the earlier `compare_two_humps.py`
+diagnostic. Its selected-gap mean and dispersion reach the tracker with the
+peak metadata; histogram inputs do not undergo fixed-train harmonic scaling.
+The existing diagonal Kalman filter and basic Bernoulli lifecycle remain in
+use. **Integration checks pass; performance calibration remains open.** In
+particular, the complete E46/E38 replay exposes substantial fragmentation.
+Do not interpret this milestone as acceptable emitter retention.
 
 ## Sixty-second Config 101 playback with dropouts
 
@@ -120,7 +95,12 @@ truth IDs; it cannot reconstruct hidden simulator state that was not stored
 in the HDF5 file. It is therefore suitable for tracker/dropout stress testing,
 not a replacement for a future stateful scenario generator.
 
-## Focused cross-RF train linking
+## Historical cross-RF and fixed-train experiments
+
+The following scripts are historical experiments and do not define the supported
+integration above. Their grouping, estimator and confidence models differ.
+
+### Focused cross-RF train linking
 
 To study one known development case without presenting truth to the
 association logic, run the Config 101 emitter-46 candidate family in window 0:
@@ -209,7 +189,7 @@ python3 plot_stateful_tracker_monitor.py \
 
 The tracker itself never reads truth. Truth is applied only after all PDW
 decisions to measure correct, wrong, ambiguous and unclaimed associations.
-The blob tracker uses Kalman state/covariance updates and joint NIS chi-square
+The supported blob tracker uses Kalman state/covariance updates and joint NIS chi-square
 gating for AOA, pulse width and PRI. Its displayed track confidence is a
 Bernoulli existence probability updated from innovation likelihood, probability
 of survival, probability of detection, RF-mode probability and expected clutter;
