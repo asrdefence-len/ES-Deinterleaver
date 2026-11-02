@@ -74,3 +74,15 @@ Integration acceptance is recorded separately from the still-open emitter
 retention and calibration acceptance. The next performance investigation is
 identity fragmentation across RF/PW blobs and their differently sampled gap
 statistics, using this saved configuration as the comparison point.
+
+To reproduce the baseline plots:
+
+```bash
+python3 plot_integration_baseline.py results/integrated_baseline/moderate.json
+```
+
+`identity_fragmentation.png` shows all canonical IDs associated with each
+truth emitter's pulses, including fragments outside the original primary.
+`pri_histogram_inputs.png` shows the actual blob-level selected-gap mean,
+standard deviation, hump centres and selected-gap support. These gap statistics
+must not be interpreted as transmitter fundamental PRI.
