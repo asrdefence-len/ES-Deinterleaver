@@ -1,0 +1,48 @@
+{
+  "version": "E46-only v1",
+  "code_revision": "16b0f640ebb919b2bd94cd83bed1a8d6118fe16e",
+  "source_snapshot_sha256": "53f4327822506f7e8ae30f9e646d68c718ffd1218c6705f4632fcd6b0ad719a2",
+  "recording": {
+    "name": "config_101.h5",
+    "sha256": "fae9e2a82108ca97c85b5a3501e3a4f1798493f30f7e3eb0cc961d1b537ff8ec",
+    "size_bytes": 29136818
+  },
+  "scope": "Only E46 measurement-selected family enters tracker; original multi-emitter recording remains grouping input",
+  "isolation_checks": {
+    "only_e46_selected": true,
+    "recording_unchanged": true,
+    "pipeline_unchanged": true,
+    "tracker_parameters_unchanged": true,
+    "grouping_settings_unchanged": true,
+    "pri_histogram_settings_unchanged": true,
+    "e46_seed_unchanged": true,
+    "clean_committed_run": true,
+    "runtime_component_sources_unchanged": true,
+    "e46_input_observations_unchanged": true
+  },
+  "targeted_tests_passed": 36,
+  "duration_s": 7.93080996256359,
+  "windows": 85,
+  "primary_track_id": "E1",
+  "primary_retention": {
+    "retained": 135,
+    "total": 433
+  },
+  "canonical_track_count": 32,
+  "observations": 433,
+  "observations_with_pri": 301,
+  "selection_evaluation": {
+    "truth_pulses": 12530,
+    "selected_pulses": 11707,
+    "selected_truth_pulses": 11707,
+    "selection_purity": 1.0,
+    "selection_coverage": 0.934317637669593
+  },
+  "last_primary_present_s": 5.908852402779228,
+  "last_selected_observation_s": 5.443845225268891,
+  "last_window_with_truth_pulses_end_s": 7.93080996256359,
+  "performance_status": "Isolated reference; fragmentation remains unresolved. No filter or lifecycle tuning.",
+  "result": "results/e46_only/v1/e46_only.json",
+  "result_sha256": "b1035806e97fbfd6a8ba5004705cbafa742be5c701a39360f00eed6361743777",
+  "overview": "results/e46_only/v1/e46_overview.png"
+}

@@ -113,3 +113,30 @@ labels; it is not a like-for-like validation comparison. `AGENTS.md` records
 project-level handoff instructions so future work starts from these files,
 versions and known failures. The next investigation should isolate measurement
 changes between grouping variants before changing filter/lifecycle parameters.
+
+## Active version: E46-only v1
+
+The user has set E38 aside to establish E46 first. The isolated version is on
+`codex/e46-only-baseline`; [its run instructions](e46_only_baseline.md) and
+[machine-readable record](e46_only_baseline.json) identify the result and checks.
+
+The clean replay used code revision `16b0f64`. Only E46's candidate family
+enters the tracker; grouping still sees the unchanged full Config 101 input.
+Verification confirms the same dataset, grouping/PRI settings, runtime component
+sources, E46 seed, all 433 E46 observation inputs and tracker parameters as the
+preceding integrated two-family replay. No filter or lifecycle tuning occurred.
+Targeted integration/tracker tests: **36 passed**.
+
+The replay produces 32 canonical identities and retains 135/433 observations on
+original primary E1. Selection purity is 100%, with 93.43% of labelled E46
+pulses selected. The original primary is last present at about 5.91 s; the
+last selected observation is at about 5.44 s. E46 truth pulses still occur in
+the final recording window, so the late absence must not be described as a
+verified emitter shutdown. Fragmentation and missed sparse coverage remain
+open issues. Removing E38 changes beam competition, so identity assignments
+may differ even though the E46 measurement inputs are identical.
+
+`results/e46_only/v1/e46_overview.png` keeps confidence, every assigned identity,
+PRI input statistics and pulse coverage together. Previous two-emitter results
+remain untouched. Do not compare against legacy grouping as a success target;
+continue investigation of this isolated, intended path one change at a time.

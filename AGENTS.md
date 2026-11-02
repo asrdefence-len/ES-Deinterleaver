@@ -48,3 +48,13 @@ code, data and artifact hashes. Never silently substitute one result/path.
   revision/dirty state, source and dataset hashes, and dependency versions.
 - Update the integration-status record at milestones with what changed, what
   passed, what failed, the active version, and the next single investigation.
+
+## Active focus: E46-only isolation
+
+The current user direction is to set E38 aside and get E46 right through the
+intended integrated pipeline. Use `--pipeline integrated --scenario e46_only`
+in the shared seeded runner and `docs/e46_only_baseline.md`. Do not return to
+legacy grouping or use its reassuring confidence plots as an acceptance target.
+`results/e46_only/v1/e46_only.json` is the isolated reference. Compare its input
+isolation and settings only against the preceding integrated E46/E38 replay;
+do not tune the filter, estimator or lifecycle merely to make plots look better.

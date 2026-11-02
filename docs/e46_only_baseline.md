@@ -37,3 +37,12 @@ Acceptance for this isolation step: the dataset, runtime components, tracker
 parameters and E46 input observations must match the preceding integrated
 benchmark; the result must contain only the E46 selected family. This step
 establishes an isolated reference and does not claim to fix fragmentation.
+
+## Recorded v1 result
+
+Clean code version `16b0f64`, full 85-window replay. All ten isolation checks
+in [the result record](e46_only_baseline.json) pass. There are 433 observations,
+301 with PRI histograms, 32 canonical track IDs and 135/433 observations on the
+original E1 primary. Selection purity is 100% and E46 pulse selection coverage
+is 93.43%. The primary is last present at approximately 5.91 s. These are
+unresolved tracking/coverage limitations, not a performance improvement claim.
