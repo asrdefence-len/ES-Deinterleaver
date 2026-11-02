@@ -386,6 +386,8 @@ class BlobEmitterTracker:
             window_best = max(track.window_best_log_likelihood_ratio, log_lr)
         existence = max(-20., min(20., existence))
         pri, pri_variance = track.pri_s, track.pri_variance_s2
+        if pri_variance is not None:
+            pri_variance += self.pri_q * dt
         if obs.pri_s is not None:
             observed_variance = max(obs.pri_sigma_s ** 2,
                                     self.pri_measurement_floor_s ** 2)
@@ -393,7 +395,7 @@ class BlobEmitterTracker:
                     (obs.pri_histogram is None) != (track.pri_histogram is None)):
                 pri, pri_variance = obs.pri_s, observed_variance
             else:
-                predicted_pri = pri_variance + self.pri_q * dt
+                predicted_pri = pri_variance
                 timing = statistics["timing"]
                 th, oh = timing["track_harmonic"], timing["observed_harmonic"]
                 base, base_variance, _ = self._kalman_scalar(

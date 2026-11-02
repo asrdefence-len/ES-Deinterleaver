@@ -140,3 +140,19 @@ def test_basic_lifecycle_predicts_coasts_archives_and_never_reuses_identity():
     assert tracker.archived_tracks[first.track_id]['reason'] == 'LOST_CONFIDENCE'
     tracker.process(replace(observation, observation_id='W3:B0', window_id='W3', start_s=1., end_s=1.03))
     assert tracker.hypotheses[0].tracks[0].track_id != first.track_id
+
+
+def test_missing_histogram_measurement_still_predicts_existing_pri_covariance():
+    data, _ = emitter_window()
+    observation = summarize_blob_pri(data, NAMES, np.where(data[:, 3] < 50, 0, -1), 'W0')[0]
+    tracker = BlobEmitterTracker()
+    tracker.process(observation)
+    prior = tracker.hypotheses[0].tracks[0]
+    missing = replace(observation, observation_id='W1:B0', window_id='W1',
+        start_s=.05, end_s=.08, pri_s=None, pri_sigma_s=None, pri_histogram=None)
+    tracker.process(missing)
+    updated = next(t for t in tracker.hypotheses[0].tracks if t.track_id == prior.track_id)
+    assert updated.pri_s == prior.pri_s
+    assert updated.pri_variance_s2 == pytest.approx(
+        prior.pri_variance_s2 + tracker.pri_q * (.05 - prior.last_end_s), rel=1e-12, abs=0)
+    assert updated.pri_histogram == prior.pri_histogram
