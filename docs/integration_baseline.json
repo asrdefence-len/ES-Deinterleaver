@@ -1,0 +1,95 @@
+{
+  "milestone": "AOA + RF/PW HDBSCAN + local gap-PRI estimator + Kalman/basic lifecycle integration",
+  "date_local": "2026-11-02",
+  "timezone": "Australia/Sydney",
+  "code_revision": "4c3d5be3c0fc69e29eb1dac96c3d9c29eb47a81e",
+  "source_snapshot_sha256": "345281b1b661893d81e54745950b1b21c906a7087af4d6dd3ea839e8ad3bf9ce",
+  "recording": {
+    "name": "config_101.h5",
+    "sha256": "fae9e2a82108ca97c85b5a3501e3a4f1798493f30f7e3eb0cc961d1b537ff8ec",
+    "size_bytes": 29136818
+  },
+  "package_versions": {
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "scikit-learn": "1.9.1",
+    "h5py": "3.16.0"
+  },
+  "checks": {
+    "regression_tests_passed": 239,
+    "integration_tests_passed": 5,
+    "truth_relabelling_invariance": true,
+    "histogram_metadata_reaches_tracker": true,
+    "direct_gap_mean_kalman_update": true,
+    "missing_pri_covariance_prediction": true,
+    "lifecycle_birth_coast_archive_unique_ids": true
+  },
+  "performance_acceptance": "OPEN: severe fragmentation remains; this is a wiring/integration baseline, not a calibrated tracking release",
+  "moderate_two_emitter": {
+    "duration_s": 7.93080996256359,
+    "selection_evaluation": {
+      "E46": {
+        "truth_pulses": 12530,
+        "selected_pulses": 11707,
+        "selected_truth_pulses": 11707,
+        "selection_purity": 1.0,
+        "selection_coverage": 0.934317637669593
+      },
+      "E38": {
+        "truth_pulses": 12211,
+        "selected_pulses": 7903,
+        "selected_truth_pulses": 7876,
+        "selection_purity": 0.9965835758572694,
+        "selection_coverage": 0.6449922201293915
+      }
+    },
+    "primary_retention_measurements": {
+      "E46": {
+        "retained": 142,
+        "total": 433
+      },
+      "E38": {
+        "retained": 6,
+        "total": 153
+      }
+    },
+    "cross_assignments_to_primary_tracks_only": {
+      "E46_to_E38": 0,
+      "E38_to_E46": 0
+    },
+    "canonical_tracks_with_target_truth_pulses_eval": {
+      "E46": 33,
+      "E38": 22
+    },
+    "canonical_tracks_containing_both_target_labels_eval": 0,
+    "events": 586,
+    "events_with_pri_histogram": 348
+  },
+  "long_e46": {
+    "windows": 85,
+    "primary_track_id": "E1",
+    "primary_updates": 139,
+    "final_primary_present": false
+  },
+  "full_scene_first4": {
+    "windows": 4,
+    "selected_pdws": 37782,
+    "observations": 457,
+    "observations_with_pri": 235,
+    "membership_preserved": true
+  },
+  "artifacts": {
+    "results/integrated_baseline/moderate.json": {
+      "sha256": "fd3b223d6afc3012e140651e3ca71a58a7ec060822c644a286f5936df9114b28"
+    },
+    "results/integrated_baseline/long_e46.json": {
+      "sha256": "b519cf3f6045a2e58a36f76429db7ac5028cfd3cc9683b2a3bdd8c7eb6bc9c10"
+    },
+    "results/integrated_baseline/full_scene_first4/run_manifest.json": {
+      "sha256": "d5d591d26c133a4665b8632e29e82be9ba134e90609e0695ec6ece108129b674"
+    },
+    "results/integrated_baseline/full_scene_first4/windows.csv": {
+      "sha256": "5ea0c31a330d0f3453982b8117b9cb094bdb27b609a2af5f4d878e92b8c5c8e9"
+    }
+  }
+}

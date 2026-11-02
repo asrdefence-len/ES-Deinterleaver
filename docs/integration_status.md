@@ -44,3 +44,33 @@ Record implemented, integrated and performance-validated status separately.
 Update the supported-path documentation and manifests whenever a component or
 its measurement meaning changes. Historical scripts are experiments unless
 listed as supported entry points in `blob_tracking.md`.
+
+## Recorded baseline — 2 November 2026
+
+Code revision: `4c3d5be` (clean working tree during all three replays).
+Regression result: **239 passed**, including five integration tests.
+The machine-readable [baseline record](integration_baseline.json) contains the
+input/code hashes, dependency versions, artifact checksums and numerical results.
+
+| Replay | Recorded result |
+|---|---|
+| All grouped data, first four Config 101 windows | 37,782 grouped PDWs; 457 whole-blob observations; 235 carry a PRI histogram; membership preserved |
+| E46/E38 controlled families, all 85 windows | 586 blob observations; 348 carry a PRI histogram; zero canonical tracks contain both target truth labels |
+| E46 single-family, all 85 windows | Runner completes; original primary has 139 updates and is absent at the recording end |
+
+The two-family replay creates **33 canonical track IDs touching E46 pulses and
+22 touching E38 pulses**. These are fragments, not counts of physical emitters.
+Only 142/433 E46 observations and 6/153 E38 observations remain on the respective
+original primary IDs after consolidation. The denominators are whole HDBSCAN
+blobs, unlike the legacy fixed-train benchmark, so the old retention fractions
+are not directly comparable.
+
+Selection coverage is 93.43% for E46 and 64.50% for E38; selected-pulse purity is
+100% and 99.66%, respectively. E38 starts from its Window 3 seed, whereas the
+coverage denominator includes the entire recording. These metrics describe
+this controlled selection and do not establish whole-scene detection quality.
+
+Integration acceptance is recorded separately from the still-open emitter
+retention and calibration acceptance. The next performance investigation is
+identity fragmentation across RF/PW blobs and their differently sampled gap
+statistics, using this saved configuration as the comparison point.
