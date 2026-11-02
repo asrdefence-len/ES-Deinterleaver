@@ -307,7 +307,7 @@ def main():
     result = {"run_manifest": manifest, "truth_is_evaluation_only": True, "scenario": args.scenario,
         "duration_s": duration_s,
         "track_ids": track_ids, "families": families, "monitor": monitor,
-        "events": events, "evaluation_summary": scores,
+        "events": events, "evaluation": evaluation, "evaluation_summary": scores,
         "cross_assigned_measurements": cross_assignments,
         "canonical_primary_retention": canonical_retention,
         "final_tracker_snapshot": tracker.snapshot()}
