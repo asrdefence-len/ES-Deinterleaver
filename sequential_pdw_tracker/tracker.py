@@ -111,7 +111,11 @@ class SequentialPDWTracker:
             return max(likelihoods[best], 1e-12), best
         # An unseen frequency can be a hop from the same emitter. This explicit
         # probability prevents RF alone from forcing a new identity.
-        return self.config.rf_hop_probability / max(1, len(track.rf_modes)), None
+        # This branch represents the composite event "some previously unseen
+        # RF mode", not one particular member of an enumerated mode set. Its
+        # probability mass must not shrink as known modes are added; doing so
+        # made a fifth E46 mode unable to beat the fixed birth prior.
+        return self.config.rf_hop_probability, None
 
     def _timing_likelihood(self, track: _Track, toa_s: float) -> float:
         gap = toa_s - track.last_toa_s

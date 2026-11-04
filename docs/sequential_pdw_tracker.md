@@ -113,3 +113,20 @@ PRI support instead.
 The earlier E46 cross-RF plot (71.4% family coverage, eight RF blobs and nine
 pulse trains) belongs to a blob/train pipeline. It is historical context, not a
 like-for-like acceptance target for this raw-PDW experiment.
+
+The first controlled E46 run at commit `7810cc2` processed all 12,530 pulses,
+created the maximum 64 identities, assigned 1,765 later pulses and rejected
+10,701. Including births, coverage was 1,829/12,530 (14.60%). The cap filled by
+selected pulse 1,170, within the first 0.489 s of E46 input. All 63 births after
+the first were necessarily duplicate identities; their weakest likelihood was
+RF in 57 cases, PW in three and timing in three.
+
+E46 contains eight approximately 200 MHz-spaced RF populations from 10.0 to
+11.4 GHz, but the implementation divided the unseen-mode probability by the
+number of already learned modes. With a hop probability of 0.08 and birth prior
+of 0.02, a track with four modes assigned at most 0.02 to a fifth before other
+likelihoods reduced it. No E46 track learned more than four modes. The next
+isolated version treats `rf_hop_probability` as the composite probability of
+some previously unseen RF mode, without dividing it by known-mode count, and
+adds an eight-mode default-settings regression. All other model stages remain
+fixed for the matched E46 rerun.

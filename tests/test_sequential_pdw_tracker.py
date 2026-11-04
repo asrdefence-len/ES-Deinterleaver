@@ -97,6 +97,17 @@ def test_default_hop_hypothesis_outranks_birth_when_other_features_agree():
     assert len(tracker.snapshots()[0].rf_modes_hz) == 2
 
 
+def test_unseen_mode_mass_does_not_shrink_as_modes_are_learned():
+    tracker = SequentialPDWTracker()
+    decisions = [tracker.process(pdw(
+        index, index * 100, 1000 + index * 100, 1.0, 10.0,
+    )) for index in range(8)]
+    assert decisions[0].outcome == "birth"
+    assert all(decision.outcome == "assigned" for decision in decisions[1:])
+    assert len({decision.track_id for decision in decisions}) == 1
+    assert len(tracker.snapshots()[0].rf_modes_hz) == 8
+
+
 def test_timing_stays_neutral_until_multiple_gaps_support_pri():
     tracker = SequentialPDWTracker()
     decisions = [

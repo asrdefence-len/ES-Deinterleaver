@@ -50,6 +50,17 @@ purity is trivially 100%. Acceptance evidence must show coverage, every identity
 fragment, RF-mode continuity and PRI support. The historical 71.4% E46 cross-RF
 family plot came from the blob/train route and is not a like-for-like target.
 
+The first controlled raw-PDW E46 run at commit `7810cc2` processed all 12,530
+truth-isolated pulses and produced 64 identities with 14.60% total coverage
+(1,829 pulses including births). The cap filled by selected pulse 1,170, within
+0.489 s. All 63 births after the first were duplicate E46 identities; RF was the
+weakest likelihood in 57, PW in three and timing in three. E46 contains eight RF
+populations, while no track learned more than four because the unseen-mode mass
+was divided by known-mode count: after four modes it could not beat the 0.02
+birth prior. The next single change preserves the full 0.08 composite unseen-RF
+mass and adds an eight-mode regression. Timing, PW, thresholds and capacity stay
+fixed for a matched E46 rerun.
+
 ## Milestone: restore the intended processing chain
 
 The experimental state was preserved at Git checkpoint `1465b5b`.
