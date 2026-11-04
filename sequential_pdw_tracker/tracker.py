@@ -28,11 +28,14 @@ def _gaussian_compatibility(residual: float, sigma: float) -> float:
 class TrackerConfig:
     max_tracks: int = 64
     max_rf_modes: int = 12
+    max_pulse_width_modes: int = 8
     rf_mode_gate_hz: float = 20e6
     rf_sigma_floor_hz: float = 2e6
     rf_hop_probability: float = 0.08
     aoa_sigma_floor_deg: float = 2.0
     pulse_width_log_sigma_floor: float = 0.08
+    pulse_width_mode_gate_log: float = 0.25
+    pulse_width_hop_probability: float = 0.08
     pri_relative_sigma_floor: float = 0.08
     pri_min_support: int = 3
     max_missed_pulses: int = 20
@@ -46,11 +49,12 @@ class TrackerConfig:
     learning_rate_floor: float = 0.02
 
     def __post_init__(self) -> None:
-        if (self.max_tracks < 1 or self.max_rf_modes < 1
+        if (self.max_tracks < 1 or self.max_rf_modes < 1 or self.max_pulse_width_modes < 1
                 or self.pri_min_support < 1 or self.max_missed_pulses < 1):
-            raise ValueError("track, RF-mode, PRI-support and missed-pulse limits must be positive")
+            raise ValueError("track, mode, PRI-support and missed-pulse limits must be positive")
         probabilities = (
             self.rf_hop_probability,
+            self.pulse_width_hop_probability,
             self.missed_pulse_probability,
             self.birth_prior,
             self.clutter_prior,
@@ -69,16 +73,24 @@ class _RFMode:
 
 
 @dataclass
+class _PulseWidthMode:
+    log_mean: float
+    log_variance: float
+    count: int = 1
+
+
+@dataclass
 class _Track:
     track_id: str
     first_toa_s: float
     last_toa_s: float
     aoa_deg: float
     aoa_variance_deg2: float
-    pulse_width_log_mean: float
-    pulse_width_log_variance: float
+    pulse_width_modes: list[_PulseWidthMode]
+    pulse_width_transition_counts: np.ndarray
     rf_modes: list[_RFMode]
     transition_counts: np.ndarray
+    last_pulse_width_mode: int = 0
     last_rf_mode: int = 0
     pulse_count: int = 1
     pri_s: float | None = None
@@ -138,23 +150,48 @@ class SequentialPDWTracker:
         )
         return _gaussian_compatibility(residual, sigma) * self.config.missed_pulse_probability ** (intervals - 1)
 
-    def _track_likelihood(self, track: _Track, pdw: PDW) -> tuple[float, dict[str, float], int | None]:
+    def _pulse_width_likelihood(
+        self,
+        track: _Track,
+        pulse_width_s: float,
+    ) -> tuple[float, int | None]:
+        log_width = math.log(pulse_width_s)
+        transition_row = track.pulse_width_transition_counts[track.last_pulse_width_mode]
+        transition_probability = transition_row / transition_row.sum()
+        likelihoods = []
+        for index, mode in enumerate(track.pulse_width_modes):
+            sigma = math.sqrt(max(
+                mode.log_variance,
+                self.config.pulse_width_log_sigma_floor**2,
+            ))
+            likelihoods.append(
+                float(transition_probability[index])
+                * _gaussian_compatibility(log_width - mode.log_mean, sigma)
+            )
+        best = int(np.argmax(likelihoods))
+        if abs(log_width - track.pulse_width_modes[best].log_mean) <= self.config.pulse_width_mode_gate_log:
+            return max(likelihoods[best], 1e-12), best
+        return self.config.pulse_width_hop_probability, None
+
+    def _track_likelihood(
+        self,
+        track: _Track,
+        pdw: PDW,
+    ) -> tuple[float, dict[str, float], tuple[int | None, int | None]]:
         aoa_sigma = math.sqrt(max(track.aoa_variance_deg2, self.config.aoa_sigma_floor_deg**2))
         aoa = _gaussian_compatibility(_angular_error_deg(pdw.aoa_deg, track.aoa_deg), aoa_sigma)
-        pw_residual = math.log(pdw.pulse_width_s) - track.pulse_width_log_mean
-        pw_sigma = math.sqrt(max(track.pulse_width_log_variance, self.config.pulse_width_log_sigma_floor**2))
-        pulse_width = _gaussian_compatibility(pw_residual, pw_sigma)
-        frequency, mode = self._rf_likelihood(track, pdw.frequency_hz)
+        pulse_width, pulse_width_mode = self._pulse_width_likelihood(track, pdw.pulse_width_s)
+        frequency, rf_mode = self._rf_likelihood(track, pdw.frequency_hz)
         timing = self._timing_likelihood(track, pdw.toa_s)
         components = {"aoa": aoa, "pulse_width": pulse_width, "frequency": frequency, "timing": timing}
-        return math.prod(components.values()), components, mode
+        return math.prod(components.values()), components, (rf_mode, pulse_width_mode)
 
     def process(self, pdw: PDW) -> AssociationDecision:
         if pdw.pulse_width_s <= 0.0 or pdw.frequency_hz <= 0.0:
             raise ValueError("PDW frequency and pulse width must be positive")
         scores: dict[str, float] = {"new": self.config.birth_prior, "clutter": self.config.clutter_prior}
         components: dict[str, dict[str, float]] = {}
-        modes: dict[str, int | None] = {}
+        modes: dict[str, tuple[int | None, int | None]] = {}
         for track in self._tracks:
             score, detail, mode = self._track_likelihood(track, pdw)
             scores[track.track_id] = max(score, 1e-300)
@@ -167,7 +204,8 @@ class SequentialPDWTracker:
         track_id: str | None = None
         if winner not in ("new", "clutter") and posterior[winner] >= self.config.min_assignment_posterior:
             track = next(track for track in self._tracks if track.track_id == winner)
-            self._update(track, pdw, modes[winner])
+            rf_mode, pulse_width_mode = modes[winner]
+            self._update(track, pdw, rf_mode, pulse_width_mode)
             outcome, track_id = "assigned", winner
         elif winner == "new" and len(self._tracks) < self.config.max_tracks:
             track_id = self._create_track(pdw)
@@ -192,23 +230,61 @@ class SequentialPDWTracker:
             last_toa_s=pdw.toa_s,
             aoa_deg=pdw.aoa_deg,
             aoa_variance_deg2=self.config.aoa_sigma_floor_deg**2,
-            pulse_width_log_mean=math.log(pdw.pulse_width_s),
-            pulse_width_log_variance=self.config.pulse_width_log_sigma_floor**2,
+            pulse_width_modes=[_PulseWidthMode(
+                math.log(pdw.pulse_width_s),
+                self.config.pulse_width_log_sigma_floor**2,
+            )],
+            pulse_width_transition_counts=np.ones((1, 1), dtype=float),
             rf_modes=[_RFMode(pdw.frequency_hz, self.config.rf_sigma_floor_hz**2)],
             transition_counts=np.ones((1, 1), dtype=float),
         ))
         return track_id
 
-    def _update(self, track: _Track, pdw: PDW, mode_index: int | None) -> None:
+    def _update(
+        self,
+        track: _Track,
+        pdw: PDW,
+        mode_index: int | None,
+        pulse_width_mode_index: int | None,
+    ) -> None:
         gap = pdw.toa_s - track.last_toa_s
         alpha = max(self.config.learning_rate_floor, 1.0 / (track.pulse_count + 1))
         aoa_residual = _angular_error_deg(pdw.aoa_deg, track.aoa_deg)
         track.aoa_deg = (track.aoa_deg + alpha * aoa_residual + 180.0) % 360.0 - 180.0
         track.aoa_variance_deg2 = (1.0 - alpha) * track.aoa_variance_deg2 + alpha * aoa_residual**2
-        log_pw = math.log(pdw.pulse_width_s)
-        pw_residual = log_pw - track.pulse_width_log_mean
-        track.pulse_width_log_mean += alpha * pw_residual
-        track.pulse_width_log_variance = (1.0 - alpha) * track.pulse_width_log_variance + alpha * pw_residual**2
+
+        if (pulse_width_mode_index is None
+                and len(track.pulse_width_modes) < self.config.max_pulse_width_modes):
+            pulse_width_mode_index = len(track.pulse_width_modes)
+            track.pulse_width_modes.append(_PulseWidthMode(
+                math.log(pdw.pulse_width_s),
+                self.config.pulse_width_log_sigma_floor**2,
+            ))
+            expanded = np.ones((pulse_width_mode_index + 1, pulse_width_mode_index + 1), dtype=float)
+            expanded[:pulse_width_mode_index, :pulse_width_mode_index] = track.pulse_width_transition_counts
+            track.pulse_width_transition_counts = expanded
+        elif pulse_width_mode_index is None:
+            log_width = math.log(pdw.pulse_width_s)
+            pulse_width_mode_index = min(
+                range(len(track.pulse_width_modes)),
+                key=lambda i: abs(log_width - track.pulse_width_modes[i].log_mean),
+            )
+        pulse_width_mode = track.pulse_width_modes[pulse_width_mode_index]
+        pw_alpha = max(
+            self.config.learning_rate_floor,
+            1.0 / (pulse_width_mode.count + 1),
+        )
+        pw_residual = math.log(pdw.pulse_width_s) - pulse_width_mode.log_mean
+        pulse_width_mode.log_mean += pw_alpha * pw_residual
+        pulse_width_mode.log_variance = (
+            (1.0 - pw_alpha) * pulse_width_mode.log_variance
+            + pw_alpha * pw_residual**2
+        )
+        pulse_width_mode.count += 1
+        track.pulse_width_transition_counts[
+            track.last_pulse_width_mode, pulse_width_mode_index
+        ] += 1.0
+        track.last_pulse_width_mode = pulse_width_mode_index
 
         if mode_index is None and len(track.rf_modes) < self.config.max_rf_modes:
             mode_index = len(track.rf_modes)
@@ -243,18 +319,27 @@ class SequentialPDWTracker:
         track.pulse_count += 1
 
     def snapshots(self) -> tuple[TrackSnapshot, ...]:
-        return tuple(TrackSnapshot(
-            track_id=track.track_id,
-            pulse_count=track.pulse_count,
-            first_toa_s=track.first_toa_s,
-            last_toa_s=track.last_toa_s,
-            aoa_deg=track.aoa_deg,
-            aoa_sigma_deg=math.sqrt(max(track.aoa_variance_deg2, 0.0)),
-            pulse_width_s=math.exp(track.pulse_width_log_mean),
-            pulse_width_log_sigma=math.sqrt(max(track.pulse_width_log_variance, 0.0)),
-            pri_s=track.pri_s,
-            pri_sigma_s=None if track.pri_variance_s2 is None else math.sqrt(max(track.pri_variance_s2, 0.0)),
-            pri_support=track.pri_support,
-            rf_modes_hz=tuple(mode.mean_hz for mode in track.rf_modes),
-            last_rf_mode=track.last_rf_mode,
-        ) for track in self._tracks)
+        snapshots = []
+        for track in self._tracks:
+            pulse_width_mode = track.pulse_width_modes[track.last_pulse_width_mode]
+            snapshots.append(TrackSnapshot(
+                track_id=track.track_id,
+                pulse_count=track.pulse_count,
+                first_toa_s=track.first_toa_s,
+                last_toa_s=track.last_toa_s,
+                aoa_deg=track.aoa_deg,
+                aoa_sigma_deg=math.sqrt(max(track.aoa_variance_deg2, 0.0)),
+                pulse_width_s=math.exp(pulse_width_mode.log_mean),
+                pulse_width_log_sigma=math.sqrt(max(pulse_width_mode.log_variance, 0.0)),
+                pulse_width_modes_s=tuple(
+                    math.exp(mode.log_mean) for mode in track.pulse_width_modes
+                ),
+                last_pulse_width_mode=track.last_pulse_width_mode,
+                pri_s=track.pri_s,
+                pri_sigma_s=(None if track.pri_variance_s2 is None else
+                             math.sqrt(max(track.pri_variance_s2, 0.0))),
+                pri_support=track.pri_support,
+                rf_modes_hz=tuple(mode.mean_hz for mode in track.rf_modes),
+                last_rf_mode=track.last_rf_mode,
+            ))
+        return tuple(snapshots)

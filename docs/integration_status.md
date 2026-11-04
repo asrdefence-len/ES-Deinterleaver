@@ -78,6 +78,14 @@ state-model coverage from competition among duplicate fragments. Rejected
 pulses remain missing; this control does not force association or claim
 deployable knowledge of emitter count.
 
+The one-track control at commit `1bc2283` retained 205/12,530 E46 pulses (1.64%).
+The track learned all eight RF modes but only the approximately 0.27 µs PW
+population. PW caused 502 rejections in the first 1,000 selected pulses; after
+the last accepted pulse at index 709, timing decayed to zero and never recovered.
+The next single component change replaces the scalar PW distribution with
+learned PW modes and transitions. It uses no source configuration or truth mode
+count. RF and timing models remain unchanged for the matched one-track rerun.
+
 ## Milestone: restore the intended processing chain
 
 The experimental state was preserved at Git checkpoint `1465b5b`.

@@ -39,6 +39,8 @@ class TrackSnapshot:
     aoa_sigma_deg: float
     pulse_width_s: float
     pulse_width_log_sigma: float
+    pulse_width_modes_s: tuple[float, ...]
+    last_pulse_width_mode: int
     pri_s: float | None
     pri_sigma_s: float | None
     pri_support: int

@@ -108,6 +108,18 @@ def test_unseen_mode_mass_does_not_shrink_as_modes_are_learned():
     assert len(tracker.snapshots()[0].rf_modes_hz) == 8
 
 
+def test_pulse_width_modes_are_learned_without_splitting_identity():
+    tracker = SequentialPDWTracker()
+    widths = (0.10, 0.27, 0.43) * 4
+    decisions = [tracker.process(pdw(
+        index, index * 100, 1000, width, 10.0,
+    )) for index, width in enumerate(widths)]
+    assert decisions[0].outcome == "birth"
+    assert all(decision.outcome == "assigned" for decision in decisions[1:])
+    assert len({decision.track_id for decision in decisions}) == 1
+    assert len(tracker.snapshots()[0].pulse_width_modes_s) == 3
+
+
 def test_timing_stays_neutral_until_multiple_gaps_support_pri():
     tracker = SequentialPDWTracker()
     decisions = [

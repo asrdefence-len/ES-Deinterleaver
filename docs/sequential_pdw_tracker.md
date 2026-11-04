@@ -156,3 +156,19 @@ one-emitter stream. This is not a deployable assumption; it separates emitter
 state estimation from duplicate-track competition. Pulses that the sole track
 cannot explain remain visibly rejected, so coverage directly exposes whether
 the RF/PW/PRI model can follow E46 without manufacturing reassuring fragments.
+
+The one-track control at commit `1bc2283` retained only 205/12,530 E46 pulses
+(1.64%). The sole track learned all eight RF modes, but its PW estimate collapsed
+onto the approximately 0.27 µs population. In the first 1,000 selected pulses,
+502 rejections were PW-driven. After the final accepted pulse at selected index
+709, elapsed timing likelihood decayed to zero and the track never recovered;
+11,794 total rejections had timing as their weakest component. This is a causal
+failure chain: rejecting the other PW regimes starves timing updates, which then
+makes even the learned PW regime impossible.
+
+The next isolated version replaces the single log-Gaussian PW estimate with
+observation-driven PW modes and a learned transition matrix, analogous to the RF
+state model. No E46 configuration values or mode count enter inference. A
+controlled regression cycles through three unknown PW populations and requires
+one identity to learn all three. RF and timing models remain fixed for the
+matched one-track rerun.
