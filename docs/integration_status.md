@@ -1,5 +1,24 @@
 # Integration status
 
+## Active sequential architecture: proper HMM Model 1
+
+Incremental patching of the causal MAP surrogate has stopped. It multiplied
+uncalibrated compatibility scores, committed immediately to track/birth/clutter
+and did not retain an HMM state posterior. Its results remain below as failure
+evidence, not the active tracker architecture.
+
+The active implementation is [HMM Model 1](hmm_tracker_model1.md): raw E46 PDWs
+selected outside inference update one Rao-Blackwellised state filter using only
+Frequency, TOA and AOA. RF uses a full forward posterior and expected transition
+counts; AOA uses a circular continuous Markov filter; TOA uses normalized
+semi-Markov PRI hypotheses with latent elapsed interval counts. Every E46 pulse
+updates the filter. PW and amplitude are explicitly excluded and tested for
+invariance. This is emitter-state validation, not yet multi-emitter association.
+
+The next matched version will add PW to the same model and input only after the
+user runs and reviews Model 1. Birth, clutter and bounded multi-emitter
+hypotheses remain outside this milestone.
+
 ## Parallel experiment: sequential raw-PDW tracker
 
 Work on `codex/sequential-pdw-tracker` introduces a separate experimental path:

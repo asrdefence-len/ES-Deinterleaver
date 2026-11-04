@@ -1,5 +1,10 @@
 # Sequential probabilistic PDW tracker — baseline v0
 
+> **Historical surrogate:** this causal MAP baseline established the dataset,
+> diagnostics and failure evidence but is not the requested HMM tracker. Active
+> work moved to the forward-filtering [HMM Model 1](hmm_tracker_model1.md). Do
+> not use this surrogate as the implementation target.
+
 This is a fresh experimental path, independent of AOA density grouping,
 HDBSCAN, blobs, blob summaries and `BlobEmitterTracker`:
 
