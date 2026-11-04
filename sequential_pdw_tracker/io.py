@@ -91,3 +91,40 @@ def iter_pdws(
                 )
                 label = None if truth is None else truth[offset].item()
                 yield pdw, label
+
+
+def iter_truth_isolated_pdws(
+    path: str | Path,
+    truth_emitter: int | str,
+    *,
+    limit: int | None = None,
+    start: int = 0,
+    chunk_size: int = 4096,
+) -> Iterator[tuple[PDW, int | str]]:
+    """Yield a controlled single-emitter stream selected by evaluation truth.
+
+    This is an explicit component-isolation fixture, not a deployable inference
+    path. Selection occurs outside the tracker and the returned ``PDW`` remains
+    truth-free. ``start`` and ``limit`` count matching pulses, not source rows.
+    """
+    if start < 0 or (limit is not None and limit < 1):
+        raise ValueError("start must be non-negative and limit must be positive")
+    info = inspect_dataset(path)
+    if not info.labels_present:
+        raise ValueError("Truth-isolated input requires the HDF5 'labels' dataset")
+    target = str(truth_emitter)
+    matching = 0
+    yielded = 0
+    for pdw, label in iter_pdws(path, chunk_size=chunk_size):
+        if str(label) != target:
+            continue
+        if matching < start:
+            matching += 1
+            continue
+        matching += 1
+        if label is None:  # guarded by labels_present; retained for type safety
+            raise RuntimeError("Truth label unexpectedly missing during isolation")
+        yield pdw, label
+        yielded += 1
+        if limit is not None and yielded >= limit:
+            return

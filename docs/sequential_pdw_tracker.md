@@ -88,3 +88,28 @@ state, dataset hash, dependency versions, every final track, truth coverage,
 all identity fragments and per-track purity. The JSONL contains the posterior
 and component likelihoods for every incoming PDW. Share the console output and
 the JSON result for the next single-stage investigation.
+
+## Controlled E46-only state-estimation test
+
+Before returning to multi-emitter association, isolate E46 from the canonical
+recording and pass its raw PDWs directly to the same tracker:
+
+```bash
+python3 run_sequential_pdw_tracker.py turing_data/config_101.h5 \
+  --isolate-truth-emitter 46 \
+  --limit 12530 \
+  --output results/sequential_pdw/e46_only/pri_support_3.json \
+  --diagnostics results/sequential_pdw/e46_only/pri_support_3.jsonl
+```
+
+The label is used only by the runner to construct a controlled input stream.
+Original PDW IDs and TOAs are preserved, and the truth-free `PDW` object is the
+only object passed to `SequentialPDWTracker`. The output manifest marks the
+selection as `evaluation_truth_isolation` and `truth_available_to_tracker` as
+false. Purity is trivially 100% in this fixture and is not an acceptance metric;
+inspect coverage, number of identities, fragment sizes, RF-mode continuity and
+PRI support instead.
+
+The earlier E46 cross-RF plot (71.4% family coverage, eight RF blobs and nine
+pulse trains) belongs to a blob/train pipeline. It is historical context, not a
+like-for-like acceptance target for this raw-PDW experiment.

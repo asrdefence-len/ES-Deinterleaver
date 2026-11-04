@@ -40,6 +40,16 @@ timing as the weakest component in 16, PW in 14 and RF in 10. The next single
 change delays use of the online PRI likelihood until three assigned gaps support
 it; all other components and settings remain fixed for another matched replay.
 
+## Active sequential focus: controlled E46-only input
+
+The user selected E46 for the next component-isolation stage. The canonical
+recording's truth label is used outside inference to select E46 PDWs in original
+TOA order; the tracker still receives only truth-free raw `PDW` objects. This is
+a state-estimation and continuity test, not a deinterleaving benchmark, and its
+purity is trivially 100%. Acceptance evidence must show coverage, every identity
+fragment, RF-mode continuity and PRI support. The historical 71.4% E46 cross-RF
+family plot came from the blob/train route and is not a like-for-like target.
+
 ## Milestone: restore the intended processing chain
 
 The experimental state was preserved at Git checkpoint `1465b5b`.

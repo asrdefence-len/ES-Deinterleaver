@@ -5,7 +5,11 @@ import numpy as np
 import pytest
 
 from sequential_pdw_tracker.evaluation import evaluate
-from sequential_pdw_tracker.io import inspect_dataset, iter_pdws
+from sequential_pdw_tracker.io import (
+    inspect_dataset,
+    iter_pdws,
+    iter_truth_isolated_pdws,
+)
 from sequential_pdw_tracker.model import PDW
 from sequential_pdw_tracker.tracker import SequentialPDWTracker, TrackerConfig
 
@@ -33,6 +37,25 @@ def test_hdf5_reader_converts_units_and_keeps_truth_separate(tmp_path):
     assert rows[0][0].frequency_hz == 1e9
     assert rows[0][1] == 7
     assert "truth" not in asdict(rows[0][0])
+
+
+def test_truth_isolation_preserves_source_ids_and_never_enters_pdw(tmp_path):
+    path = tmp_path / "fixture.h5"
+    with h5py.File(path, "w") as handle:
+        handle.create_dataset("data", data=np.array([
+            [10.0, 1000.0, 2.0, 10.0, -80.0],
+            [11.0, 2000.0, 3.0, 20.0, -79.0],
+            [12.0, 1100.0, 2.0, 10.0, -78.0],
+            [13.0, 1200.0, 2.0, 10.0, -77.0],
+        ]))
+        handle.create_dataset("labels", data=np.array([[46], [7], [46], [46]]))
+        metadata = handle.create_group("metadata")
+        metadata.create_dataset("feature_names", data=np.array(
+            [b"ToA", b"Frequency", b"PulseWidth", b"AoA", b"Amplitude"]))
+    rows = list(iter_truth_isolated_pdws(path, 46, start=1, limit=2))
+    assert [item.pdw_id for item, _ in rows] == [2, 3]
+    assert [label for _, label in rows] == [46, 46]
+    assert all("truth" not in asdict(item) for item, _ in rows)
 
 
 def test_probabilities_are_normalized_and_include_new_and_clutter():
