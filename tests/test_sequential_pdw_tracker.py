@@ -45,8 +45,7 @@ def test_probabilities_are_normalized_and_include_new_and_clutter():
 
 
 def test_interleaved_emitters_and_frequency_hop_remain_separate():
-    tracker = SequentialPDWTracker(TrackerConfig(
-        birth_prior=0.05, min_assignment_posterior=0.4, rf_hop_probability=0.2))
+    tracker = SequentialPDWTracker()
     sequence = [
         pdw(0, 0, 1000, 1.0, 10),
         pdw(1, 20, 5000, 3.0, 100),
@@ -62,6 +61,17 @@ def test_interleaved_emitters_and_frequency_hop_remain_separate():
     first = next(snapshot for snapshot in tracker.snapshots()
                  if snapshot.track_id == decisions[0].track_id)
     assert len(first.rf_modes_hz) == 2
+
+
+def test_default_hop_hypothesis_outranks_birth_when_other_features_agree():
+    tracker = SequentialPDWTracker()
+    first = tracker.process(pdw(0, 0, 1000, 1.0, 10.0))
+    hopped = tracker.process(pdw(1, 100, 1100, 1.0, 10.0))
+    assert first.outcome == "birth"
+    assert hopped.outcome == "assigned"
+    assert hopped.track_id == first.track_id
+    assert hopped.posterior[first.track_id] > hopped.posterior["new"]
+    assert len(tracker.snapshots()[0].rf_modes_hz) == 2
 
 
 def test_evaluation_keeps_missing_tracks_and_all_fragments_visible():

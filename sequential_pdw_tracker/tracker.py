@@ -36,7 +36,10 @@ class TrackerConfig:
     pri_relative_sigma_floor: float = 0.08
     max_missed_pulses: int = 20
     missed_pulse_probability: float = 0.85
-    birth_prior: float = 0.08
+    # A compatible RF hop must be able to outrank a new-emitter hypothesis.
+    # With the previous 0.08 default, an unseen-mode score was at most 0.08
+    # before the other likelihoods were applied, so birth always won or tied.
+    birth_prior: float = 0.02
     clutter_prior: float = 0.01
     min_assignment_posterior: float = 0.45
     learning_rate_floor: float = 0.02

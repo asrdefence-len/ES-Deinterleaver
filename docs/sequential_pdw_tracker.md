@@ -17,6 +17,24 @@ joint multi-hypothesis history, retrospective smoothing, track deletion, mode
 dwell states, calibrated likelihoods or performance acceptance. Its output is
 evidence for the next investigation, not a tracking-improvement claim.
 
+The first canonical 5,000-PDW replay at commit `90fdafe` created 64 tracks,
+assigned 1,010 later pulses and rejected 3,926 as clutter. Overall measurement
+coverage, including track-birth pulses, was 1,074/5,000 (21.48%); labelled
+association purity on that selected subset was 99.81%. The track cap was reached
+by input row 94, the 64 births represented only 22 truth emitters, and every
+track retained exactly one RF mode. Of the rejected pulses, 3,880 actually had
+the new-emitter hypothesis as their highest posterior; they were reported as
+clutter only because no track capacity remained.
+
+That replay exposed a structural default-prior defect rather than demonstrating
+frequency-hop tracking: the unseen-RF-mode score was at most 0.08, while the
+new-emitter prior was also 0.08, before AOA, PW and timing likelihoods reduced
+the existing-track score. A hop could therefore never beat birth under default
+settings. The next isolated version lowers only the new-emitter prior to 0.02
+and adds a default-settings regression requiring a compatible frequency hop to
+update the original track. Timing, feature models, assignment threshold and
+track capacity remain frozen pending the matched 5,000-PDW rerun.
+
 ## Dataset boundary
 
 The expected HDF5 schema is:

@@ -10,14 +10,25 @@ recalibrate the integrated E46-only baseline below. See
 dataset boundary, limitations and local run procedure. Performance acceptance
 is open until a clean Config 101 replay is supplied and reviewed.
 
-The v0 implementation and four focused tests pass; the full repository result
-is **243 passed**. A 500-PDW wiring smoke test used the explicitly different
+The v0 implementation and its focused tests pass; the full repository result
+at its initial checkpoint was **243 passed**. A 500-PDW wiring smoke test used the explicitly different
 `config_101_60s_gaps.h5`: it reached the configured 64-track limit, assigned
 130 pulses and left 306 as clutter. This is recorded as an unaccepted smoke
 result, not silently treated as the Config 101 benchmark. The next single
-investigation is the user's 5,000-PDW run on the canonical `config_101.h5`,
-followed by inspection of track saturation and component likelihoods before
-one model stage is changed.
+investigation was the user's 5,000-PDW run on the canonical `config_101.h5`.
+
+That canonical replay used dataset SHA-256
+`fae9e2a82108ca97c85b5a3501e3a4f1798493f30f7e3eb0cc961d1b537ff8ec`
+and commit `90fdafe`. It created 64 tracks, assigned 1,010 later pulses and
+rejected 3,926; including births, coverage was 1,074/5,000 (21.48%) with 99.81%
+selected association purity. The cap was reached by row 94, the births covered
+only 22 of the 45 truth emitters present, and all 64 tracks had one RF mode.
+Posteriors show that 3,880 rejected pulses preferred a new emitter but could not
+be born at capacity. The default unseen-mode score could not exceed the equal
+0.08 birth prior after other likelihoods were applied, so the advertised RF-hop
+path was structurally unable to win. The next isolated change lowers only the
+birth prior to 0.02 and adds a default-configuration hopping regression; all
+other association and state settings remain frozen for the matched rerun.
 
 ## Milestone: restore the intended processing chain
 
