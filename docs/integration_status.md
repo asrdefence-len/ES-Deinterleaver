@@ -70,6 +70,14 @@ transmitted states. The next RF-only change uses the existing 0.08 hop
 probability as a backoff floor for rare known-mode transitions. No PW, timing,
 birth, threshold or capacity setting changes for the matched rerun.
 
+The RF-transition backoff at commit `b2d190a` regressed matched E46 coverage
+from 18.62% to 17.87% (2,239/12,530), retained 64 identities and increased
+RF-driven duplicate births from 51 to 54. It is removed. The next controlled
+run sets `max_tracks=1` for the truth-isolated one-emitter stream to separate
+state-model coverage from competition among duplicate fragments. Rejected
+pulses remain missing; this control does not force association or claim
+deployable knowledge of emitter count.
+
 ## Milestone: restore the intended processing chain
 
 The experimental state was preserved at Git checkpoint `1465b5b`.

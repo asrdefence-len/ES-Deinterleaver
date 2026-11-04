@@ -145,3 +145,14 @@ the existing 0.08 hop probability as a backoff floor for rare or skipped
 transitions between known RF modes. A regression learns three modes, makes one
 transition artificially rare, and requires it to retain the original identity.
 PW, timing, birth, threshold and capacity settings remain fixed.
+
+The matched backoff run at commit `b2d190a` failed that acceptance test. E46
+coverage fell from 18.62% to 17.87% (2,239/12,530), identities remained at 64,
+and RF-driven duplicate births increased from 51 to 54. The backoff is therefore
+removed rather than carried forward.
+
+The next control fixes capacity at one track for the already truth-isolated
+one-emitter stream. This is not a deployable assumption; it separates emitter
+state estimation from duplicate-track competition. Pulses that the sole track
+cannot explain remain visibly rejected, so coverage directly exposes whether
+the RF/PW/PRI model can follow E46 without manufacturing reassuring fragments.

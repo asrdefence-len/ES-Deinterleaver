@@ -103,7 +103,7 @@ class SequentialPDWTracker:
         for index, mode in enumerate(track.rf_modes):
             sigma = math.sqrt(max(mode.variance_hz2, self.config.rf_sigma_floor_hz**2))
             likelihoods.append(
-                max(float(transition_probability[index]), self.config.rf_hop_probability)
+                float(transition_probability[index])
                 * _gaussian_compatibility(frequency_hz - mode.mean_hz, sigma)
             )
         best = int(np.argmax(likelihoods))
