@@ -156,8 +156,6 @@ class SequentialPDWTracker:
         pulse_width_s: float,
     ) -> tuple[float, int | None]:
         log_width = math.log(pulse_width_s)
-        transition_row = track.pulse_width_transition_counts[track.last_pulse_width_mode]
-        transition_probability = transition_row / transition_row.sum()
         likelihoods = []
         for index, mode in enumerate(track.pulse_width_modes):
             sigma = math.sqrt(max(
@@ -165,8 +163,7 @@ class SequentialPDWTracker:
                 self.config.pulse_width_log_sigma_floor**2,
             ))
             likelihoods.append(
-                float(transition_probability[index])
-                * _gaussian_compatibility(log_width - mode.log_mean, sigma)
+                _gaussian_compatibility(log_width - mode.log_mean, sigma)
             )
         best = int(np.argmax(likelihoods))
         if abs(log_width - track.pulse_width_modes[best].log_mean) <= self.config.pulse_width_mode_gate_log:

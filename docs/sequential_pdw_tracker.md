@@ -172,3 +172,17 @@ state model. No E46 configuration values or mode count enter inference. A
 controlled regression cycles through three unknown PW populations and requires
 one identity to learn all three. RF and timing models remain fixed for the
 matched one-track rerun.
+
+The matched PW-mode run at commit `fa1a930` learned the three E46 PW populations
+without source configuration, but coverage regressed from 1.64% to 1.46%
+(183/12,530) and the last accepted pulse moved from index 709 to 661. PW-driven
+rejections in the first 1,000 fell from 502 to 113, while RF-driven rejections
+rose from 29 to 400. The cause is the product of separate learned RF and PW
+transition probabilities, which treats the two mode chains as independent and
+over-penalises otherwise compatible joint changes.
+
+The PW modes are retained, but PW association now uses emission compatibility
+only. PW transition counts remain recorded for diagnosis and a future joint
+RF/PW state model; they do not multiply the RF transition probability. A
+regression makes a known PW transition artificially rare and requires identity
+continuity. RF and timing remain unchanged for the next matched one-track run.

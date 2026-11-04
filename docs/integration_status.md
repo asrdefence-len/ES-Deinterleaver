@@ -86,6 +86,14 @@ The next single component change replaces the scalar PW distribution with
 learned PW modes and transitions. It uses no source configuration or truth mode
 count. RF and timing models remain unchanged for the matched one-track rerun.
 
+The matched PW-mode run at commit `fa1a930` learned all three E46 PW populations
+but regressed coverage from 1.64% to 1.46% (183/12,530). In the first 1,000
+pulses, PW-driven rejections fell from 502 to 113 while RF-driven rejections
+rose from 29 to 400. Multiplying independent RF and PW transition probabilities
+over-penalised joint mode changes. PW modes remain, but only PW emission
+compatibility enters association; PW transitions remain diagnostic until a
+joint state model is implemented. RF and timing stay fixed for the matched run.
+
 ## Milestone: restore the intended processing chain
 
 The experimental state was preserved at Git checkpoint `1465b5b`.

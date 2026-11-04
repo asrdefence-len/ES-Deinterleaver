@@ -120,6 +120,20 @@ def test_pulse_width_modes_are_learned_without_splitting_identity():
     assert len(tracker.snapshots()[0].pulse_width_modes_s) == 3
 
 
+def test_rare_known_pulse_width_mode_does_not_force_new_identity():
+    tracker = SequentialPDWTracker()
+    widths = [0.10, 0.43, 0.10, 0.27]
+    for _ in range(120):
+        widths.extend((0.10, 0.27))
+    widths.extend((0.10, 0.43))
+    decisions = [tracker.process(pdw(
+        index, index * 100, 1000, width, 10.0,
+    )) for index, width in enumerate(widths)]
+    assert decisions[0].outcome == "birth"
+    assert all(decision.outcome == "assigned" for decision in decisions[1:])
+    assert len({decision.track_id for decision in decisions}) == 1
+
+
 def test_timing_stays_neutral_until_multiple_gaps_support_pri():
     tracker = SequentialPDWTracker()
     decisions = [
