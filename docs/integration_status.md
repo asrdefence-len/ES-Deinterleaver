@@ -1,5 +1,24 @@
 # Integration status
 
+## Parallel experiment: sequential raw-PDW tracker
+
+Work on `codex/sequential-pdw-tracker` introduces a separate experimental path:
+raw time-ordered PDWs enter a causal probabilistic multi-emitter tracker without
+AOA grouping, HDBSCAN, blobs or `BlobEmitterTracker`. This does not replace or
+recalibrate the integrated E46-only baseline below. See
+[`sequential_pdw_tracker.md`](sequential_pdw_tracker.md) for its explicit model,
+dataset boundary, limitations and local run procedure. Performance acceptance
+is open until a clean Config 101 replay is supplied and reviewed.
+
+The v0 implementation and four focused tests pass; the full repository result
+is **243 passed**. A 500-PDW wiring smoke test used the explicitly different
+`config_101_60s_gaps.h5`: it reached the configured 64-track limit, assigned
+130 pulses and left 306 as clutter. This is recorded as an unaccepted smoke
+result, not silently treated as the Config 101 benchmark. The next single
+investigation is the user's 5,000-PDW run on the canonical `config_101.h5`,
+followed by inspection of track saturation and component likelihoods before
+one model stage is changed.
+
 ## Milestone: restore the intended processing chain
 
 The experimental state was preserved at Git checkpoint `1465b5b`.
