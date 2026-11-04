@@ -35,6 +35,21 @@ and adds a default-settings regression requiring a compatible frequency hop to
 update the original track. Timing, feature models, assignment threshold and
 track capacity remain frozen pending the matched 5,000-PDW rerun.
 
+The matched 0.02-prior replay at commit `13c5c76` increased total coverage to
+2,482/5,000 (49.64%) while selected association purity remained 99.88%. It also
+learned multiple RF modes in 45/64 tracks, so the intended RF-hop path was
+actually exercised. The cap still filled by row 128: 64 births represented 24
+truth emitters, and 2,364 rejected pulses preferred a new emitter.
+
+Every one of the 40 duplicate births already had a same-truth track. The weakest
+likelihood component was timing in 16 cases, pulse width in 14 and RF in 10.
+The timing model was using its first assigned inter-arrival gap immediately as
+a PRI, which produced near-zero likelihoods for later valid pulses when that
+single gap spanned missed pulses or was otherwise unrepresentative. The next
+isolated version keeps timing neutral until three assigned gaps support the PRI
+estimate and exports that support count. RF/PW models, birth prior, association
+threshold and track capacity remain unchanged for the next matched replay.
+
 ## Dataset boundary
 
 The expected HDF5 schema is:

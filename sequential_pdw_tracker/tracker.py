@@ -34,6 +34,7 @@ class TrackerConfig:
     aoa_sigma_floor_deg: float = 2.0
     pulse_width_log_sigma_floor: float = 0.08
     pri_relative_sigma_floor: float = 0.08
+    pri_min_support: int = 3
     max_missed_pulses: int = 20
     missed_pulse_probability: float = 0.85
     # A compatible RF hop must be able to outrank a new-emitter hypothesis.
@@ -45,8 +46,9 @@ class TrackerConfig:
     learning_rate_floor: float = 0.02
 
     def __post_init__(self) -> None:
-        if self.max_tracks < 1 or self.max_rf_modes < 1 or self.max_missed_pulses < 1:
-            raise ValueError("track, RF-mode and missed-pulse limits must be positive")
+        if (self.max_tracks < 1 or self.max_rf_modes < 1
+                or self.pri_min_support < 1 or self.max_missed_pulses < 1):
+            raise ValueError("track, RF-mode, PRI-support and missed-pulse limits must be positive")
         probabilities = (
             self.rf_hop_probability,
             self.missed_pulse_probability,
@@ -81,6 +83,7 @@ class _Track:
     pulse_count: int = 1
     pri_s: float | None = None
     pri_variance_s2: float | None = None
+    pri_support: int = 0
 
 
 class SequentialPDWTracker:
@@ -114,7 +117,11 @@ class SequentialPDWTracker:
         gap = toa_s - track.last_toa_s
         if gap < 0.0:
             return 0.0
-        if track.pri_s is None or gap == 0.0:
+        # One inter-arrival gap is not a reliable PRI estimate in an interleaved
+        # stream: it may span missed pulses or a temporary association. Keep
+        # timing neutral until several assigned gaps support the estimate.
+        if (track.pri_s is None or track.pri_support < self.config.pri_min_support
+                or gap == 0.0):
             return 1.0
         intervals = min(
             self.config.max_missed_pulses,
@@ -220,12 +227,14 @@ class SequentialPDWTracker:
             if track.pri_s is None:
                 track.pri_s = gap
                 track.pri_variance_s2 = (self.config.pri_relative_sigma_floor * gap) ** 2
+                track.pri_support = 1
             else:
                 intervals = min(self.config.max_missed_pulses, max(1, int(round(gap / track.pri_s))))
                 observed_pri = gap / intervals
                 pri_residual = observed_pri - track.pri_s
                 track.pri_s += alpha * pri_residual
                 track.pri_variance_s2 = (1.0 - alpha) * (track.pri_variance_s2 or 0.0) + alpha * pri_residual**2
+                track.pri_support += 1
         track.last_toa_s = pdw.toa_s
         track.pulse_count += 1
 
@@ -241,6 +250,7 @@ class SequentialPDWTracker:
             pulse_width_log_sigma=math.sqrt(max(track.pulse_width_log_variance, 0.0)),
             pri_s=track.pri_s,
             pri_sigma_s=None if track.pri_variance_s2 is None else math.sqrt(max(track.pri_variance_s2, 0.0)),
+            pri_support=track.pri_support,
             rf_modes_hz=tuple(mode.mean_hz for mode in track.rf_modes),
             last_rf_mode=track.last_rf_mode,
         ) for track in self._tracks)

@@ -74,6 +74,19 @@ def test_default_hop_hypothesis_outranks_birth_when_other_features_agree():
     assert len(tracker.snapshots()[0].rf_modes_hz) == 2
 
 
+def test_timing_stays_neutral_until_multiple_gaps_support_pri():
+    tracker = SequentialPDWTracker()
+    decisions = [
+        tracker.process(pdw(0, 0, 1000, 1.0, 10.0)),
+        tracker.process(pdw(1, 100, 1000, 1.0, 10.0)),
+        # A single 100 us gap must not make this later valid pulse impossible.
+        tracker.process(pdw(2, 350, 1000, 1.0, 10.0)),
+    ]
+    assert [decision.outcome for decision in decisions] == ["birth", "assigned", "assigned"]
+    assert len({decision.track_id for decision in decisions}) == 1
+    assert tracker.snapshots()[0].pri_support == 2
+
+
 def test_evaluation_keeps_missing_tracks_and_all_fragments_visible():
     tracker = SequentialPDWTracker(TrackerConfig(max_tracks=1))
     decisions = [

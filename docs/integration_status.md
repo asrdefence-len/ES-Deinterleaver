@@ -30,6 +30,16 @@ path was structurally unable to win. The next isolated change lowers only the
 birth prior to 0.02 and adds a default-configuration hopping regression; all
 other association and state settings remain frozen for the matched rerun.
 
+The matched 0.02-birth-prior replay at commit `13c5c76` raised coverage from
+21.48% to 49.64% (2,482/5,000 including births), retained 99.88% selected
+association purity, and produced multiple RF modes in 45/64 tracks. This is a
+real improvement in the intended hop path, not performance acceptance: the cap
+still filled by row 128, only 24 truth emitters received births, and 2,364
+rejections preferred a new emitter. Analysis of all 40 duplicate births found
+timing as the weakest component in 16, PW in 14 and RF in 10. The next single
+change delays use of the online PRI likelihood until three assigned gaps support
+it; all other components and settings remain fixed for another matched replay.
+
 ## Milestone: restore the intended processing chain
 
 The experimental state was preserved at Git checkpoint `1465b5b`.

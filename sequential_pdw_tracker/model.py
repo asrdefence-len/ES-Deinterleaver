@@ -41,5 +41,6 @@ class TrackSnapshot:
     pulse_width_log_sigma: float
     pri_s: float | None
     pri_sigma_s: float | None
+    pri_support: int
     rf_modes_hz: tuple[float, ...]
     last_rf_mode: int
