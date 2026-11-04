@@ -19,6 +19,16 @@ The next matched version will add PW to the same model and input only after the
 user runs and reviews Model 1. Birth, clutter and bounded multi-emitter
 hypotheses remain outside this milestone.
 
+The first complete Model 1 E46 run processed all 12,530 selected pulses, learned
+eight RF states, retained a normalized RF transition matrix and ended with an
+AOA estimate of 32.238 degrees with 0.149-degree posterior sigma. Its TOA bank
+failed identification: the retained hypotheses collapsed near 2.032 microseconds,
+a harmonic/submultiple with no model preference for the fundamental PRI. RF and
+AOA are therefore frozen while timing is redesigned; PW remains blocked. The
+diagnostic performance plot reports AOA covariance, RF posterior entropy, the
+visible timing estimate and rolling log evidence. It must not present covariance
+contraction alone as accuracy or performance acceptance.
+
 ## Parallel experiment: sequential raw-PDW tracker
 
 Work on `codex/sequential-pdw-tracker` introduces a separate experimental path:

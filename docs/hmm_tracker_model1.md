@@ -90,5 +90,21 @@ The result records enabled and excluded features, dataset/code provenance,
 posterior-normalization checks, predictive log evidence, RF state emissions and
 transition matrix, AOA estimate/uncertainty and the complete timing posterior.
 
+The per-pulse diagnostic can be plotted without rerunning the filter:
+
+```bash
+python3 plot_hmm_model1_performance.py \
+  results/sequential_pdw/hmm_model1/e46.jsonl \
+  --output results/sequential_pdw/hmm_model1/e46_performance.png
+```
+
+The four panels deliberately use the uncertainty measure appropriate to each
+state: posterior covariance for continuous AOA, Shannon entropy for the
+discrete RF state, the MAP timing hypothesis, and rolling predictive log
+evidence. A small covariance is not by itself proof of accuracy. In particular,
+the timing panel must remain visible because the first complete E46 run
+converged confidently to a harmonic/submultiple rather than establishing the
+transmitter's fundamental PRI.
+
 Model 2 will use this identical input and filter, changing only the addition of
 PW observations. Multi-emitter association remains a later layer.
