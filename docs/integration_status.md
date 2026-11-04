@@ -61,6 +61,15 @@ birth prior. The next single change preserves the full 0.08 composite unseen-RF
 mass and adds an eight-mode regression. Timing, PW, thresholds and capacity stay
 fixed for a matched E46 rerun.
 
+The matched run at commit `d189851` increased E46 coverage from 14.60% to
+18.62% (2,333/12,530), and 12 tracks learned all eight RF modes. Fragmentation
+remained at 64 identities; the last birth moved to selected pulse 2,071 and RF
+was still the weakest component in 51/63 duplicate births. Known-mode scoring
+used the learned one-step transition probability without allowance for skipped
+transmitted states. The next RF-only change uses the existing 0.08 hop
+probability as a backoff floor for rare known-mode transitions. No PW, timing,
+birth, threshold or capacity setting changes for the matched rerun.
+
 ## Milestone: restore the intended processing chain
 
 The experimental state was preserved at Git checkpoint `1465b5b`.

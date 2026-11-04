@@ -130,3 +130,18 @@ isolated version treats `rf_hop_probability` as the composite probability of
 some previously unseen RF mode, without dividing it by known-mode count, and
 adds an eight-mode default-settings regression. All other model stages remain
 fixed for the matched E46 rerun.
+
+The matched composite-unseen-mode run at commit `d189851` raised coverage from
+14.60% to 18.62% (2,333/12,530) and allowed 12 tracks to learn all eight E46 RF
+states. It still created 64 identities, with the last birth at selected pulse
+2,071. RF remained the weakest component in 51/63 duplicate births. For a known
+RF state, the association score used only the learned one-step transition
+probability. A detected stream can skip transmitted states, so a rare observed
+transition could have lower probability than track birth even when RF emission,
+AOA and PW supported the existing emitter.
+
+The next isolated version retains learned transition preferences but applies
+the existing 0.08 hop probability as a backoff floor for rare or skipped
+transitions between known RF modes. A regression learns three modes, makes one
+transition artificially rare, and requires it to retain the original identity.
+PW, timing, birth, threshold and capacity settings remain fixed.

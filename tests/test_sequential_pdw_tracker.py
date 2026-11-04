@@ -108,6 +108,21 @@ def test_unseen_mode_mass_does_not_shrink_as_modes_are_learned():
     assert len(tracker.snapshots()[0].rf_modes_hz) == 8
 
 
+def test_known_rf_mode_uses_hop_backoff_for_rare_skipped_transition():
+    tracker = SequentialPDWTracker()
+    frequencies = [1000, 1200, 1000, 1100]
+    for _ in range(120):
+        frequencies.extend((1000, 1100))
+    frequencies.extend((1000, 1200))
+    decisions = [tracker.process(pdw(
+        index, index * 100, frequency, 1.0, 10.0,
+    )) for index, frequency in enumerate(frequencies)]
+    assert decisions[0].outcome == "birth"
+    assert all(decision.outcome == "assigned" for decision in decisions[1:])
+    assert len({decision.track_id for decision in decisions}) == 1
+    assert len(tracker.snapshots()[0].rf_modes_hz) == 3
+
+
 def test_timing_stays_neutral_until_multiple_gaps_support_pri():
     tracker = SequentialPDWTracker()
     decisions = [
