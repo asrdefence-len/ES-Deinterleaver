@@ -58,15 +58,26 @@ run retained direct-support states at 4.796, 6.986, 8.756, 11.076, 16.871 and
 even though an observed gap may be a sum of shorter intervals. This failed the
 required distinction between detected inter-arrival time and transmitter PRI.
 
-The active dirty-tree milestone therefore removes all timing feedback rather
-than adding state-pruning rules. RF and AOA remain bit-for-bit unchanged over
-the first 500 E46 pulses. A new received-train shadow records an empirical gap
-density and generic short/long visibility state, with feedback fixed at zero and
-`transmitter_pri_estimate` fixed to null. A separate plot reports adjacent gaps,
-lag differences and chronological stability without labelling peaks as PRI.
-Focused tests pass, and a 500-pulse canonical E46 smoke processed every pulse,
-learned eight RF states and recorded 499 shadow gaps. The full clean 12,530-pulse
-replay is pending; PW remains excluded.
+Commit `4738539` removes all timing feedback rather than adding state-pruning
+rules. RF and AOA remain bit-for-bit unchanged over the first 500 E46 pulses. A
+new received-train shadow records an empirical gap density and generic
+short/long visibility state, with feedback fixed at zero and
+`transmitter_pri_estimate` fixed to null. The user's clean complete replay
+processed all 12,530 E46 pulses, learned eight RF states, ended at AOA 32.238
+degrees with 0.149-degree posterior sigma, and recorded 12,529 shadow gaps. Its
+received train shows an approximately 0.488-second visibility cycle and a broad
+63.499 µs median adjacent gap. PW remains excluded.
+
+The next single timing component is a held-out phase-coherence shadow. It fits
+one dominant interval lattice on the first 60% of causally classified active
+gaps, freezes the fit, and scores the last 40% against uniform phase. It does not
+change the HMM or association evidence. The code-development replay selects
+10.638 µs with 2.001 µs phase sigma. Of 4,090 held-out active gaps, 3,186 are
+scoreable; mean phase log-likelihood ratio is +0.222, 76.0% are positive, and a
+half-cycle negative control averages -1.116. This is modest predictive evidence,
+not timing acceptance: 22.1% of active gaps are unscored and 24.0% of scored
+gaps are negative. Timing feedback remains zero pending a bounded-weight
+association ablation.
 
 ## Parallel experiment: sequential raw-PDW tracker
 

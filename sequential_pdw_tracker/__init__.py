@@ -7,6 +7,12 @@ from .detected_train_timing import (
 )
 from .hmm_emitter import HMMEmitterModel1, HMMModel1Config, HMMModel1Update
 from .model import PDW, AssociationDecision, TrackSnapshot
+from .phase_timing_shadow import (
+    PhaseTimingFit,
+    PhaseTimingShadowConfig,
+    analyze_phase_timing_shadow,
+    fit_phase_timing_shadow,
+)
 from .tracker import SequentialPDWTracker, TrackerConfig
 
 __all__ = [
@@ -18,7 +24,11 @@ __all__ = [
     "HMMModel1Config",
     "HMMModel1Update",
     "PDW",
+    "PhaseTimingFit",
+    "PhaseTimingShadowConfig",
     "SequentialPDWTracker",
     "TrackSnapshot",
     "TrackerConfig",
+    "analyze_phase_timing_shadow",
+    "fit_phase_timing_shadow",
 ]

@@ -106,11 +106,19 @@ Focused tests require:
 - no transmitter PRI is emitted; and
 - total active evidence equals RF evidence plus AOA evidence exactly.
 
-A 500-pulse canonical E46 smoke processed every selected pulse, learned eight
-RF states, and ended at AOA 32.470 degrees with 0.053-degree posterior sigma.
-It recorded 499 received gaps with zero timing feedback. This is implementation
-and wiring evidence only; the clean 12,530-pulse replay is the next decision
-point.
+The clean complete E46 run at commit `4738539` processed all 12,530 selected
+pulses, learned eight RF states and ended at AOA 32.238 degrees with
+0.149-degree posterior sigma. It recorded all 12,529 received gaps while timing
+feedback remained exactly zero. The received train has a broad 63.499 µs median
+gap and an approximately 0.488-second visibility cycle, so raw adjacent gaps
+remain unsuitable as direct PRI states.
+
+The next timing-only component fits one dominant interval lattice using the
+first 60% of causally classified active gaps, then freezes it and evaluates the
+final 40%. It compares held-out phase residuals against a uniform-phase null and
+a deliberately shifted half-cycle negative control. This is a diagnostic of the
+specific likelihood that could later support association; it is not yet active
+evidence or a complete timing topology.
 
 ## Local E46 run
 
@@ -139,7 +147,20 @@ python3 analyze_detected_pulse_train.py \
   --plot results/sequential_pdw/hmm_model1/e46_detected_train.png
 ```
 
-The next step is to review the full detected-train structure. Timing may later
-enter association only as a separately calibrated, bounded soft likelihood
-ratio. Until that validation exists, its feedback remains zero. PW addition and
-multi-emitter association remain later milestones.
+Evaluate the phase-coherent predictor on chronologically held-out pulses:
+
+```bash
+python3 analyze_phase_timing_shadow.py \
+  results/sequential_pdw/hmm_model1/e46_timing_shadow.jsonl \
+  --output results/sequential_pdw/hmm_model1/e46_phase_timing_shadow.json \
+  --plot results/sequential_pdw/hmm_model1/e46_phase_timing_shadow.png
+```
+
+The current code-development replay selects a 10.638 µs dominant interval from
+training only. On 3,186 scoreable held-out active gaps, mean conditional phase
+log-likelihood ratio is +0.222 and 76.0% of gaps provide positive evidence. The
+half-cycle control averages -1.116. This establishes modest predictive timing
+information, not permission to use timing as a veto: 22.1% of held-out active
+gaps are not scoreable and 24.0% of scored gaps have negative evidence. Feedback
+therefore remains zero pending user review and a bounded-weight association
+ablation. PW addition and multi-emitter association remain later milestones.
