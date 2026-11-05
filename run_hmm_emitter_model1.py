@@ -45,12 +45,16 @@ def main() -> None:
 
     snapshot = tracker.snapshot()
     posterior_errors = [abs(sum(update.rf_posterior) - 1.0) for update in updates]
+    timing_visibility_errors = [
+        abs(update.timing_active_posterior + update.timing_coast_posterior - 1.0)
+        for update in updates if update.timing_hypothesis_count
+    ]
     transition = np.asarray(snapshot["rf_transition_matrix"], dtype=float)
     log_evidence = np.asarray([update.total_log_evidence for update in updates], dtype=float)
     provenance = run_provenance(args.dataset)
     provenance["processing_path"] = (
         "truth-isolated raw PDWs -> RF HMM forward filter + circular AOA Markov "
-        "filter + semi-Markov TOA/PRI hypotheses"
+        "filter + visibility-aware hidden semi-Markov TOA/PRI posterior"
     )
     result = {
         "status": "proper HMM Model 1 component test; not a deinterleaving benchmark",
@@ -66,6 +70,7 @@ def main() -> None:
         "update_coverage": len(updates) / args.limit if args.limit else None,
         "checks": {
             "max_rf_posterior_sum_error": max(posterior_errors, default=0.0),
+            "max_timing_visibility_sum_error": max(timing_visibility_errors, default=0.0),
             "rf_transition_row_sums": transition.sum(axis=1).tolist() if transition.size else [],
             "all_log_evidence_finite": bool(np.isfinite(log_evidence).all()),
             "pulse_width_excluded": "PulseWidth" in snapshot["excluded_features"],
@@ -85,6 +90,15 @@ def main() -> None:
     print(f"RF states learned: {len(snapshot['rf_states'])}")
     print(f"AOA: {snapshot['aoa']['mean_deg']:.3f} deg +/- {snapshot['aoa']['sigma_deg']:.3f} deg")
     print(f"Timing hypotheses retained: {len(snapshot['timing_hypotheses'])}")
+    print(
+        "Timing visibility: "
+        f"active={snapshot['timing_visibility']['active_posterior']:.3f}, "
+        f"coast={snapshot['timing_visibility']['coast_posterior']:.3f}"
+    )
+    print(
+        "Learned pulse-detection probability: "
+        f"{snapshot['timing_detection']['probability']:.3f}"
+    )
     print(f"PW excluded: {result['checks']['pulse_width_excluded']}")
     print(f"Wrote {args.output}")
 

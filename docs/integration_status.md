@@ -29,6 +29,19 @@ diagnostic performance plot reports AOA covariance, RF posterior entropy, the
 visible timing estimate and rolling log evidence. It must not present covariance
 contraction alone as accuracy or performance acceptance.
 
+The next timing-only implementation replaces hard nearest-interval updates with
+a visibility-aware hidden semi-Markov posterior. An active branch marginalizes
+plausible integer interval counts under a learned missed-detection probability;
+a coast branch preserves PRI across scan/visibility gaps. Near-duplicate PRI
+particles are moment-merged. RF, AOA and feature exclusions are unchanged. In a
+500-pulse canonical E46 schema smoke, the leading timing posterior moved from
+1.170 microseconds in the saved pre-change diagnostic at pulse 500 to 10.658
+microseconds, with 11 distinct hypotheses and finite normalized probabilities.
+At that same pulse, the RF posterior, RF evidence, AOA mean, AOA covariance,
+AOA innovation and AOA evidence are exactly unchanged. The old complete run
+later ended at the failed 2.032-microsecond submultiple. This is implementation
+and wiring evidence only; the matched 12,530-pulse clean replay remains pending.
+
 ## Parallel experiment: sequential raw-PDW tracker
 
 Work on `codex/sequential-pdw-tracker` introduces a separate experimental path:

@@ -65,19 +65,63 @@ def test_model1_provably_ignores_pulse_width_and_amplitude():
     assert left.snapshot()["excluded_features"] == ["PulseWidth", "Amplitude"]
 
 
-def test_semi_markov_timing_survives_large_latent_interval_count():
+def test_visibility_hsmm_treats_long_gap_as_coast_without_moving_pri():
     tracker = HMMEmitterModel1()
-    times_us = [0, 10, 20, 30, 40, 50, 10_050, 10_060]
+    times_us = [0, 10, 20, 30, 40, 50]
     updates = [tracker.process(pdw(index, toa, 1000, 15.0))
                for index, toa in enumerate(times_us)]
-    after_gap = updates[-2]
-    assert after_gap.timing_map_intervals is not None
-    assert after_gap.timing_map_intervals > 20
+    before_gap = updates[-1].timing_map_pri_s
+    after_gap = tracker.process(pdw(6, 10_050, 1000, 15.0))
+    assert after_gap.timing_coast_posterior > 0.999
+    assert after_gap.timing_map_intervals is None
+    assert after_gap.timing_map_pri_s == pytest.approx(before_gap, rel=0.01)
     assert math.isfinite(after_gap.timing_log_evidence)
-    assert math.isfinite(updates[-1].timing_log_evidence)
+    after_return = tracker.process(pdw(7, 10_060, 1000, 15.0))
+    assert after_return.timing_active_posterior > 0.99
+    assert after_return.timing_map_intervals == 1
+    assert math.isfinite(after_return.timing_log_evidence)
     timing = tracker.snapshot()["timing_hypotheses"]
     assert timing
     assert sum(item["posterior"] for item in timing) == pytest.approx(1.0)
+
+
+def test_visibility_hsmm_prefers_fundamental_over_subharmonics():
+    tracker = HMMEmitterModel1()
+    gaps_us = [10, 10, 20, 10, 10, 20, 10, 10, 10, 20] * 8
+    toa_us = np.cumsum([0, *gaps_us])
+    updates = [tracker.process(pdw(index, toa, 1000, 15.0))
+               for index, toa in enumerate(toa_us)]
+    timing = tracker.snapshot()["timing_hypotheses"]
+    assert timing[0]["pri_s"] * 1e6 == pytest.approx(10.0, abs=0.25)
+    assert timing[0]["posterior"] > 0.99
+    assert updates[-1].timing_active_posterior > 0.99
+    assert updates[-1].timing_active_posterior + updates[-1].timing_coast_posterior == pytest.approx(1.0)
+
+
+def test_detection_probability_is_learned_from_soft_interval_counts():
+    fully_observed = HMMEmitterModel1()
+    missed_pulses = HMMEmitterModel1()
+    full_toas = np.cumsum([0, *([10] * 80)])
+    missed_toas = np.cumsum([0, *([10, 20, 10, 20] * 20)])
+    for index, toa in enumerate(full_toas):
+        fully_observed.process(pdw(index, toa, 1000, 15.0))
+    for index, toa in enumerate(missed_toas):
+        missed_pulses.process(pdw(index, toa, 1000, 15.0))
+    full_probability = fully_observed.snapshot()["timing_detection"]["probability"]
+    missed_probability = missed_pulses.snapshot()["timing_detection"]["probability"]
+    assert full_probability > 0.9
+    assert 0.5 < missed_probability < full_probability
+
+
+def test_timing_particles_are_merged_into_distinct_hypotheses():
+    tracker = HMMEmitterModel1()
+    for index in range(100):
+        tracker.process(pdw(index, index * 10, 1000, 15.0))
+    timing = sorted(tracker.snapshot()["timing_hypotheses"], key=lambda item: item["pri_s"])
+    assert len(timing) < tracker.config.timing_max_hypotheses
+    for left, right in zip(timing, timing[1:]):
+        separation = (right["pri_s"] - left["pri_s"]) / right["pri_s"]
+        assert separation > 0.009
 
 
 def test_circular_aoa_markov_filter_crosses_wrap_boundary():

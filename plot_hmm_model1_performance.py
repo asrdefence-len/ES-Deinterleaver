@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 from pathlib import Path
 
 import matplotlib
@@ -64,6 +63,24 @@ def plot_performance(
         else float(item["timing_map_pri_s"]) * 1e6
         for item in records
     ])
+    timing_mean_us = np.asarray([
+        timing_pri_us[index]
+        if item.get("timing_posterior_mean_pri_s") is None
+        else float(item["timing_posterior_mean_pri_s"]) * 1e6
+        for index, item in enumerate(records)
+    ])
+    timing_sigma_us = np.asarray([
+        np.nan
+        if item.get("timing_posterior_sigma_s") is None
+        else float(item["timing_posterior_sigma_s"]) * 1e6
+        for item in records
+    ])
+    coast_probability = np.asarray([
+        np.nan
+        if item.get("timing_coast_posterior") is None
+        else float(item["timing_coast_posterior"])
+        for item in records
+    ])
     evidence = np.asarray([float(item["total_log_evidence"]) for item in records])
     evidence_median = rolling_median(evidence, rolling_window)
 
@@ -79,11 +96,33 @@ def plot_performance(
     axes[1].set_ylabel("RF entropy\n(bits)")
     axes[1].set_title("Discrete RF-state posterior uncertainty (not covariance)")
 
-    axes[2].plot(time_s, timing_pri_us, color="tab:green", linewidth=0.7)
-    axes[2].set_ylabel("MAP PRI (µs)")
-    axes[2].set_title(
-        "TOA timing estimate — convergence alone does not establish the fundamental PRI"
+    axes[2].plot(
+        time_s, timing_mean_us, color="tab:green", linewidth=0.8,
+        label="Posterior mean PRI",
     )
+    if np.isfinite(timing_sigma_us).any():
+        axes[2].fill_between(
+            time_s,
+            timing_mean_us - timing_sigma_us,
+            timing_mean_us + timing_sigma_us,
+            color="tab:green",
+            alpha=0.18,
+            label="±1 posterior sigma",
+        )
+    axes[2].set_ylabel("PRI (µs)")
+    axes[2].set_title(
+        "TOA timing posterior — convergence alone does not establish the fundamental PRI"
+    )
+    axes[2].legend(loc="upper left", fontsize=8)
+    if np.isfinite(coast_probability).any():
+        visibility_axis = axes[2].twinx()
+        visibility_axis.plot(
+            time_s, coast_probability, color="tab:purple", linewidth=0.6,
+            alpha=0.7, label="Coast posterior",
+        )
+        visibility_axis.set_ylabel("Coast probability", color="tab:purple")
+        visibility_axis.set_ylim(-0.03, 1.03)
+        visibility_axis.tick_params(axis="y", colors="tab:purple")
 
     axes[3].plot(
         time_s, evidence, color="0.75", linewidth=0.35, label="Per-pulse evidence",
