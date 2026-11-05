@@ -45,17 +45,19 @@ def main() -> None:
 
     snapshot = tracker.snapshot()
     posterior_errors = [abs(sum(update.rf_posterior) - 1.0) for update in updates]
-    timing_visibility_errors = [
-        abs(update.timing_active_posterior + update.timing_coast_posterior - 1.0)
-        for update in updates if update.timing_hypothesis_count
+    shadow_visibility_errors = [
+        abs(update.shadow_active_posterior + update.shadow_coast_posterior - 1.0)
+        for update in updates
     ]
     transition = np.asarray(snapshot["rf_transition_matrix"], dtype=float)
-    timing_transition = np.asarray(snapshot["timing_transition_matrix"], dtype=float)
     log_evidence = np.asarray([update.total_log_evidence for update in updates], dtype=float)
+    shadow_log_density = np.asarray([
+        update.shadow_timing_log_predictive_density for update in updates
+    ], dtype=float)
     provenance = run_provenance(args.dataset)
     provenance["processing_path"] = (
         "truth-isolated raw PDWs -> RF HMM forward filter + circular AOA Markov "
-        "filter + visibility-aware Markov-additive PRI-mode HMM"
+        "filter; detected TOA train observed by zero-feedback timing shadow"
     )
     result = {
         "status": "proper HMM Model 1 component test; not a deinterleaving benchmark",
@@ -71,12 +73,16 @@ def main() -> None:
         "update_coverage": len(updates) / args.limit if args.limit else None,
         "checks": {
             "max_rf_posterior_sum_error": max(posterior_errors, default=0.0),
-            "max_timing_visibility_sum_error": max(timing_visibility_errors, default=0.0),
+            "max_shadow_visibility_sum_error": max(shadow_visibility_errors, default=0.0),
             "rf_transition_row_sums": transition.sum(axis=1).tolist() if transition.size else [],
-            "timing_transition_row_sums": (
-                timing_transition.sum(axis=1).tolist() if timing_transition.size else []
-            ),
             "all_log_evidence_finite": bool(np.isfinite(log_evidence).all()),
+            "all_shadow_log_density_finite": bool(np.isfinite(shadow_log_density).all()),
+            "timing_feedback_weight_zero": all(
+                update.timing_feedback_weight == 0.0 for update in updates
+            ),
+            "transmitter_pri_not_inferred": (
+                snapshot["detected_train_timing_shadow"]["transmitter_pri_estimate"] is None
+            ),
             "pulse_width_excluded": "PulseWidth" in snapshot["excluded_features"],
             "amplitude_excluded": "Amplitude" in snapshot["excluded_features"],
         },
@@ -84,6 +90,12 @@ def main() -> None:
             "minimum": float(log_evidence.min()) if len(log_evidence) else None,
             "median": float(np.median(log_evidence)) if len(log_evidence) else None,
             "maximum": float(log_evidence.max()) if len(log_evidence) else None,
+        },
+        "shadow_timing_log_predictive_density": {
+            "minimum": float(shadow_log_density.min()) if len(shadow_log_density) else None,
+            "median": float(np.median(shadow_log_density)) if len(shadow_log_density) else None,
+            "maximum": float(shadow_log_density.max()) if len(shadow_log_density) else None,
+            "included_in_active_log_evidence": False,
         },
         "final_state": snapshot,
     }
@@ -93,21 +105,10 @@ def main() -> None:
     print(f"Processed {len(updates)} PDWs; every pulse updated one HMM filter")
     print(f"RF states learned: {len(snapshot['rf_states'])}")
     print(f"AOA: {snapshot['aoa']['mean_deg']:.3f} deg +/- {snapshot['aoa']['sigma_deg']:.3f} deg")
-    learned_timing = snapshot["timing_learned_modes"]
-    print(f"Timing candidate states retained: {len(snapshot['timing_hypotheses'])}")
-    print(
-        "Timing modes with direct support: "
-        + ", ".join(f"{item['pri_s'] * 1e6:.3f} us" for item in learned_timing)
-    )
-    print(
-        "Timing visibility: "
-        f"active={snapshot['timing_visibility']['active_posterior']:.3f}, "
-        f"coast={snapshot['timing_visibility']['coast_posterior']:.3f}"
-    )
-    print(
-        "Learned pulse-detection probability: "
-        f"{snapshot['timing_detection']['probability']:.3f}"
-    )
+    shadow = snapshot["detected_train_timing_shadow"]
+    print(f"Detected-train timing shadow gaps: {shadow['observed_gap_count']}")
+    print("Timing feedback weight: 0.000 (shadow only)")
+    print("Transmitter PRI estimate: not asserted")
     print(f"PW excluded: {result['checks']['pulse_width_excluded']}")
     print(f"Wrote {args.output}")
 

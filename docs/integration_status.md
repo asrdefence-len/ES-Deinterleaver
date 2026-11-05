@@ -8,17 +8,18 @@ and did not retain an HMM state posterior. Its results remain below as failure
 evidence, not the active tracker architecture.
 
 The active implementation is [HMM Model 1](hmm_tracker_model1.md): raw E46 PDWs
-selected outside inference update one Rao-Blackwellised state filter using only
-Frequency, TOA and AOA. RF uses a full forward posterior and expected transition
-counts; AOA uses a circular continuous Markov filter; TOA uses a
-visibility-aware PRI-mode HMM with latent elapsed interval counts. Every E46
-pulse updates the filter. PW and amplitude are explicitly excluded and tested
-for invariance. This is emitter-state validation, not yet multi-emitter
-association.
+selected outside inference update one state filter using Frequency, TOA and AOA.
+RF uses a full forward posterior and expected transition counts; AOA uses a
+circular continuous Markov filter. TOA orders the sequence and supplies elapsed
+time to AOA prediction. A separate zero-feedback timing shadow describes the
+received pulse train but does not assert transmitter PRI or contribute active
+evidence. Every E46 pulse updates the filter. PW and amplitude are explicitly
+excluded and tested for invariance. This is emitter-state validation, not yet
+multi-emitter association.
 
-The next matched version will add PW to the same model and input only after the
-user runs and reviews Model 1. Birth, clutter and bounded multi-emitter
-hypotheses remain outside this milestone.
+PW will be added only after the user reviews this timing boundary and the full
+E46 shadow output. Birth, clutter and bounded multi-emitter hypotheses remain
+outside this milestone.
 
 The first complete Model 1 E46 run processed all 12,530 selected pulses, learned
 eight RF states, retained a normalized RF transition matrix and ended with an
@@ -50,15 +51,22 @@ value (10.637 microseconds), but the same metadata lists two additional jittered
 values at 8.572 and 6.697 microseconds. The model therefore passed one-state
 identification but failed the requested timing-agility topology.
 
-The next timing-only revision treats retained candidates as recoverable HMM
-states with learned soft transitions. For a missed-pulse gap it forwards a
-Markov-additive path whose duration is the sum of possibly different PRI modes;
-only direct one-interval evidence moves mode centres. A controlled fixture
-learns distinct 7, 9 and 11 microsecond states and the 7 → 9 → 11 → 7 topology.
-A 500-pulse canonical E46 smoke forms directly supported states near 6.711,
-8.658 and 10.966 microseconds while transparently retaining a 32.249-microsecond
-ambiguity. RF and AOA remain frozen and PW remains excluded. Full clean replay
-acceptance is pending.
+The next timing-only revision at commit `be15d5b` treated retained candidates as
+recoverable HMM states with learned soft transitions. The user's complete E46
+run retained direct-support states at 4.796, 6.986, 8.756, 11.076, 16.871 and
+32.157 microseconds. The 32.157-microsecond state acquired substantial support
+even though an observed gap may be a sum of shorter intervals. This failed the
+required distinction between detected inter-arrival time and transmitter PRI.
+
+The active dirty-tree milestone therefore removes all timing feedback rather
+than adding state-pruning rules. RF and AOA remain bit-for-bit unchanged over
+the first 500 E46 pulses. A new received-train shadow records an empirical gap
+density and generic short/long visibility state, with feedback fixed at zero and
+`transmitter_pri_estimate` fixed to null. A separate plot reports adjacent gaps,
+lag differences and chronological stability without labelling peaks as PRI.
+Focused tests pass, and a 500-pulse canonical E46 smoke processed every pulse,
+learned eight RF states and recorded 499 shadow gaps. The full clean 12,530-pulse
+replay is pending; PW remains excluded.
 
 ## Parallel experiment: sequential raw-PDW tracker
 

@@ -65,75 +65,44 @@ def test_model1_provably_ignores_pulse_width_and_amplitude():
     assert left.snapshot()["excluded_features"] == ["PulseWidth", "Amplitude"]
 
 
-def test_visibility_hsmm_treats_long_gap_as_coast_without_moving_pri():
+def test_detected_train_timing_is_shadow_only_and_never_asserts_pri():
     tracker = HMMEmitterModel1()
-    times_us = [0, 10, 20, 30, 40, 50]
-    updates = [tracker.process(pdw(index, toa, 1000, 15.0))
-               for index, toa in enumerate(times_us)]
-    before_gap = updates[-1].timing_map_pri_s
-    after_gap = tracker.process(pdw(6, 10_050, 1000, 15.0))
-    assert after_gap.timing_coast_posterior > 0.999
-    assert after_gap.timing_map_intervals is None
-    assert after_gap.timing_map_pri_s == pytest.approx(before_gap, rel=0.01)
-    assert math.isfinite(after_gap.timing_log_evidence)
-    after_return = tracker.process(pdw(7, 10_060, 1000, 15.0))
-    assert after_return.timing_active_posterior > 0.99
-    assert after_return.timing_map_intervals == 1
-    assert math.isfinite(after_return.timing_log_evidence)
-    timing = tracker.snapshot()["timing_hypotheses"]
-    assert timing
-    assert sum(item["posterior"] for item in timing) == pytest.approx(1.0)
-
-
-def test_visibility_hsmm_prefers_fundamental_over_subharmonics():
-    tracker = HMMEmitterModel1()
-    gaps_us = [10, 10, 20, 10, 10, 20, 10, 10, 10, 20] * 8
-    toa_us = np.cumsum([0, *gaps_us])
-    updates = [tracker.process(pdw(index, toa, 1000, 15.0))
-               for index, toa in enumerate(toa_us)]
-    timing = tracker.snapshot()["timing_hypotheses"]
-    assert timing[0]["pri_s"] * 1e6 == pytest.approx(10.0, abs=0.25)
-    assert timing[0]["posterior"] > 0.99
-    assert updates[-1].timing_active_posterior > 0.99
-    assert updates[-1].timing_active_posterior + updates[-1].timing_coast_posterior == pytest.approx(1.0)
-
-
-def test_detection_probability_is_learned_from_soft_interval_counts():
-    fully_observed = HMMEmitterModel1()
-    missed_pulses = HMMEmitterModel1()
-    full_toas = np.cumsum([0, *([10] * 80)])
-    missed_toas = np.cumsum([0, *([10, 20, 10, 20] * 20)])
-    for index, toa in enumerate(full_toas):
-        fully_observed.process(pdw(index, toa, 1000, 15.0))
-    for index, toa in enumerate(missed_toas):
-        missed_pulses.process(pdw(index, toa, 1000, 15.0))
-    full_probability = fully_observed.snapshot()["timing_detection"]["probability"]
-    missed_probability = missed_pulses.snapshot()["timing_detection"]["probability"]
-    assert full_probability > 0.9
-    assert 0.5 < missed_probability < full_probability
-
-
-def test_timing_hmm_learns_multiple_pri_modes_and_their_transition_topology():
-    tracker = HMMEmitterModel1()
-    gaps_us = [33, *([7, 9, 11] * 100)]
+    gaps_us = [10, 10, 20, 10, 500, 10, 20] * 8
     toa_us = np.cumsum([0, *gaps_us])
     updates = [tracker.process(pdw(index, toa, 1000, 15.0))
                for index, toa in enumerate(toa_us)]
     state = tracker.snapshot()
-    learned = sorted(
-        [item for item in state["timing_hypotheses"] if item["effective_count"] > 20],
-        key=lambda item: item["pri_s"],
+    shadow = state["detected_train_timing_shadow"]
+    assert shadow["observed_gap_count"] == len(gaps_us)
+    assert shadow["feedback_weight"] == 0.0
+    assert shadow["transmitter_pri_estimate"] is None
+    assert state["active_evidence_features"] == ["Frequency", "AoA"]
+    assert state["shadow_features"] == ["ToA"]
+    assert all(update.timing_feedback_weight == 0.0 for update in updates)
+    assert all(update.total_log_evidence == pytest.approx(
+        update.rf_log_evidence + update.aoa_log_evidence,
+    ) for update in updates)
+    ready = [update for update in updates if update.shadow_timing_ready]
+    assert ready
+    assert all(
+        update.shadow_active_posterior + update.shadow_coast_posterior
+        == pytest.approx(1.0)
+        for update in ready
     )
-    assert [item["pri_s"] * 1e6 for item in learned] == pytest.approx(
-        [7.0, 9.0, 11.0], abs=0.05,
-    )
-    transition = np.asarray(state["timing_transition_matrix"])
-    assert np.allclose(transition.sum(axis=1), 1.0)
-    indices = [item["state_index"] for item in learned]
-    assert transition[indices[0], indices[1]] > 0.9
-    assert transition[indices[1], indices[2]] > 0.9
-    assert transition[indices[2], indices[0]] > 0.9
-    assert [round(update.timing_map_pri_s * 1e6) for update in updates[-3:]] == [7, 9, 11]
+
+
+def test_shadow_gap_model_learns_received_train_without_entering_active_evidence():
+    tracker = HMMEmitterModel1()
+    toa_us = np.cumsum([0, *([8, 12, 50, 8, 12] * 20)])
+    updates = [tracker.process(pdw(index, toa, 1000, 20.0))
+               for index, toa in enumerate(toa_us)]
+    assert np.isfinite([
+        update.shadow_timing_log_predictive_density for update in updates
+    ]).all()
+    assert updates[-1].shadow_gap_s == pytest.approx(12e-6)
+    snapshot = tracker.snapshot()["detected_train_timing_shadow"]
+    assert sum(snapshot["histogram_counts"]) == pytest.approx(len(toa_us) - 1)
+    assert snapshot["observed_gap_quantiles"]["median_s"] > 0.0
 
 
 def test_circular_aoa_markov_filter_crosses_wrap_boundary():

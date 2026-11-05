@@ -58,29 +58,42 @@ def plot_performance(
     rf_entropy = np.asarray([
         posterior_entropy_bits(item["rf_posterior"]) for item in records
     ])
-    timing_pri_us = np.asarray([
-        np.nan if item["timing_map_pri_s"] is None
-        else float(item["timing_map_pri_s"]) * 1e6
-        for item in records
-    ])
-    timing_mean_us = np.asarray([
-        timing_pri_us[index]
-        if item.get("timing_posterior_mean_pri_s") is None
-        else float(item["timing_posterior_mean_pri_s"]) * 1e6
-        for index, item in enumerate(records)
-    ])
-    timing_sigma_us = np.asarray([
-        np.nan
-        if item.get("timing_posterior_sigma_s") is None
-        else float(item["timing_posterior_sigma_s"]) * 1e6
-        for item in records
-    ])
-    coast_probability = np.asarray([
-        np.nan
-        if item.get("timing_coast_posterior") is None
-        else float(item["timing_coast_posterior"])
-        for item in records
-    ])
+    shadow_timing = "shadow_gap_s" in records[0]
+    if shadow_timing:
+        timing_pri_us = np.asarray([
+            np.nan if item["shadow_gap_s"] is None
+            else float(item["shadow_gap_s"]) * 1e6
+            for item in records
+        ])
+        timing_mean_us = timing_pri_us
+        timing_sigma_us = np.full(len(records), np.nan)
+        coast_probability = np.asarray([
+            float(item["shadow_coast_posterior"]) for item in records
+        ])
+    else:
+        timing_pri_us = np.asarray([
+            np.nan if item["timing_map_pri_s"] is None
+            else float(item["timing_map_pri_s"]) * 1e6
+            for item in records
+        ])
+        timing_mean_us = np.asarray([
+            timing_pri_us[index]
+            if item.get("timing_posterior_mean_pri_s") is None
+            else float(item["timing_posterior_mean_pri_s"]) * 1e6
+            for index, item in enumerate(records)
+        ])
+        timing_sigma_us = np.asarray([
+            np.nan
+            if item.get("timing_posterior_sigma_s") is None
+            else float(item["timing_posterior_sigma_s"]) * 1e6
+            for item in records
+        ])
+        coast_probability = np.asarray([
+            np.nan
+            if item.get("timing_coast_posterior") is None
+            else float(item["timing_coast_posterior"])
+            for item in records
+        ])
     evidence = np.asarray([float(item["total_log_evidence"]) for item in records])
     evidence_median = rolling_median(evidence, rolling_window)
 
@@ -97,13 +110,14 @@ def plot_performance(
     axes[1].set_title("Discrete RF-state posterior uncertainty (not covariance)")
 
     axes[2].plot(
-        time_s, timing_pri_us, color="tab:green", linewidth=0.65,
-        label="MAP PRI mode",
+        time_s, timing_pri_us, color="tab:green", linewidth=0.55,
+        label="Detected inter-arrival gap" if shadow_timing else "MAP PRI mode",
     )
-    axes[2].plot(
-        time_s, timing_mean_us, color="tab:olive", linewidth=0.65,
-        linestyle="--", alpha=0.8, label="Posterior mean",
-    )
+    if not shadow_timing:
+        axes[2].plot(
+            time_s, timing_mean_us, color="tab:olive", linewidth=0.65,
+            linestyle="--", alpha=0.8, label="Posterior mean",
+        )
     if np.isfinite(timing_sigma_us).any():
         axes[2].fill_between(
             time_s,
@@ -113,10 +127,14 @@ def plot_performance(
             alpha=0.18,
             label="±1 posterior sigma",
         )
-    axes[2].set_ylabel("PRI (µs)")
+    axes[2].set_ylabel("Observed gap (µs)" if shadow_timing else "PRI (µs)")
     axes[2].set_title(
+        "Detected-pulse timing shadow — observed gaps are not asserted as PRI"
+        if shadow_timing else
         "TOA timing posterior — convergence alone does not establish the fundamental PRI"
     )
+    if shadow_timing:
+        axes[2].set_yscale("log")
     axes[2].legend(loc="upper left", fontsize=8)
     if np.isfinite(coast_probability).any():
         visibility_axis = axes[2].twinx()
@@ -137,7 +155,10 @@ def plot_performance(
     )
     axes[3].set_ylabel("Log evidence")
     axes[3].set_xlabel("Time from first selected E46 pulse (s)")
-    axes[3].set_title("Predictive fit of Frequency + TOA + AOA")
+    axes[3].set_title(
+        "Active predictive fit of Frequency + AOA (timing shadow excluded)"
+        if shadow_timing else "Predictive fit of Frequency + TOA + AOA"
+    )
     axes[3].legend(loc="lower right", fontsize=8)
 
     for axis in axes:
@@ -146,8 +167,10 @@ def plot_performance(
 
     finite_pri = timing_pri_us[np.isfinite(timing_pri_us)]
     timing_note = (
-        f"Final timing estimate: {finite_pri[-1]:.3f} µs"
-        if len(finite_pri) else "Timing estimate unavailable"
+        "TOA shadow feedback weight: 0; no PRI asserted"
+        if shadow_timing else
+        (f"Final timing estimate: {finite_pri[-1]:.3f} µs"
+         if len(finite_pri) else "Timing estimate unavailable")
     )
     figure.suptitle(
         f"{title}\n{len(records):,} truth-isolated pulses; PW and amplitude excluded; "

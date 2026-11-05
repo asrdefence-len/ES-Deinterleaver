@@ -22,10 +22,8 @@ def test_plot_uses_existing_model1_diagnostics_without_changing_filter(tmp_path)
             "toa_s": 10.0 + index * 1e-3,
             "rf_posterior": [0.75, 0.25],
             "aoa_sigma_deg": 1.0 / (index + 1),
-            "timing_map_pri_s": None if index == 0 else 8e-6,
-            "timing_posterior_mean_pri_s": None if index == 0 else 8.1e-6,
-            "timing_posterior_sigma_s": None if index == 0 else 0.2e-6,
-            "timing_coast_posterior": 1.0 if index == 0 else 0.01,
+            "shadow_gap_s": None if index == 0 else 8e-6,
+            "shadow_coast_posterior": 1.0 if index == 0 else 0.01,
             "total_log_evidence": -4.0 - index,
         }
         for index in range(3)
