@@ -97,8 +97,12 @@ def plot_performance(
     axes[1].set_title("Discrete RF-state posterior uncertainty (not covariance)")
 
     axes[2].plot(
-        time_s, timing_mean_us, color="tab:green", linewidth=0.8,
-        label="Posterior mean PRI",
+        time_s, timing_pri_us, color="tab:green", linewidth=0.65,
+        label="MAP PRI mode",
+    )
+    axes[2].plot(
+        time_s, timing_mean_us, color="tab:olive", linewidth=0.65,
+        linestyle="--", alpha=0.8, label="Posterior mean",
     )
     if np.isfinite(timing_sigma_us).any():
         axes[2].fill_between(

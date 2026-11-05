@@ -49,18 +49,21 @@ class HMMModel1Config:
     aoa_process_variance_deg2_per_s: float = 0.25
     timing_min_pri_s: float = 0.5e-6
     timing_max_pri_s: float = 20e-3
-    timing_max_hypotheses: int = 64
+    timing_max_hypotheses: int = 16
     timing_initial_divisors: int = 128
-    timing_jitter_fraction: float = 0.10
+    timing_jitter_fraction: float = 0.05
     timing_toa_sigma_s: float = 25e-9
     timing_process_variance_fraction2_per_s: float = 1e-4
-    timing_max_active_intervals: int = 128
-    timing_detection_alpha_prior: float = 2.0
-    timing_detection_beta_prior: float = 2.0
+    timing_transition_pseudocount: float = 0.01
+    timing_transition_stay_pseudocount: float = 1.0
+    timing_max_active_intervals: int = 16
+    timing_detection_alpha_prior: float = 9.0
+    timing_detection_beta_prior: float = 1.0
+    timing_active_detection_floor: float = 0.50
     timing_active_to_coast_probability: float = 0.02
     timing_coast_to_active_probability: float = 0.80
     timing_coast_mean_gap_s: float = 1e-3
-    timing_merge_fraction: float = 0.01
+    timing_mode_report_min_support: float = 4.0
 
     def __post_init__(self) -> None:
         positive = (
@@ -76,11 +79,13 @@ class HMMModel1Config:
             self.timing_initial_divisors,
             self.timing_jitter_fraction,
             self.timing_toa_sigma_s,
+            self.timing_transition_pseudocount,
+            self.timing_transition_stay_pseudocount,
             self.timing_max_active_intervals,
             self.timing_detection_alpha_prior,
             self.timing_detection_beta_prior,
             self.timing_coast_mean_gap_s,
-            self.timing_merge_fraction,
+            self.timing_mode_report_min_support,
         )
         if any(value <= 0 for value in positive):
             raise ValueError("HMM configuration values must be positive")
@@ -89,6 +94,7 @@ class HMMModel1Config:
         probabilities = (
             self.timing_active_to_coast_probability,
             self.timing_coast_to_active_probability,
+            self.timing_active_detection_floor,
         )
         if any(not 0.0 < value < 1.0 for value in probabilities):
             raise ValueError("timing visibility transition probabilities must be in (0, 1)")
@@ -102,11 +108,12 @@ class _RFState:
 
 
 @dataclass
-class _TimingHypothesis:
+class _TimingMode:
     pri_s: float
     variance_s2: float
     log_active_weight: float
     log_coast_weight: float
+    effective_count: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -130,6 +137,8 @@ class HMMModel1Update:
     timing_detection_probability: float
     timing_posterior_mean_pri_s: float | None
     timing_posterior_sigma_s: float | None
+    timing_mode_posterior: tuple[float, ...]
+    timing_map_mode: int | None
     timing_hypothesis_count: int
     total_log_evidence: float
 
@@ -147,7 +156,8 @@ class HMMEmitterModel1:
         self._transition_counts = np.empty((0, 0), dtype=float)
         self._aoa_mean_deg: float | None = None
         self._aoa_variance_deg2: float | None = None
-        self._timing: list[_TimingHypothesis] = []
+        self._timing: list[_TimingMode] = []
+        self._timing_transition_counts = np.empty((0, 0), dtype=float)
         self._timing_detection_alpha = self.config.timing_detection_alpha_prior
         self._timing_detection_beta = self.config.timing_detection_beta_prior
         self._last_toa_s: float | None = None
@@ -261,28 +271,39 @@ class HMMEmitterModel1:
                 self.config.timing_max_pri_s,
                 max(self.config.timing_min_pri_s, gap_s),
             )]
-        # Retain a deterministic, evenly spread set when a gap yields many divisors.
+        # Retain a deterministic, logarithmically spread set when a gap yields
+        # many divisors.
         if len(candidates) > self.config.timing_max_hypotheses:
-            indices = np.linspace(
-                0, len(candidates) - 1,
+            # Logarithmic divisor spacing retains the important low-order
+            # candidates (gap/1, gap/2, gap/3, ...) while still representing
+            # smaller possible intervals. Linear indices previously skipped
+            # gap/3 through gap/8 on a large first gap.
+            indices = np.unique(np.rint(np.geomspace(
+                1,
+                len(candidates),
                 self.config.timing_max_hypotheses,
-                dtype=int,
-            )
+            )).astype(int) - 1)
             candidates = [candidates[index] for index in indices]
         log_weight = -math.log(len(candidates))
         initial_active_probability = 0.9
         self._timing = [
-            _TimingHypothesis(
+            _TimingMode(
                 pri_s=value,
-                variance_s2=max(
-                    (self.config.timing_jitter_fraction * value) ** 2,
-                    self.config.timing_toa_sigma_s**2,
-                ),
+                variance_s2=self.config.timing_toa_sigma_s**2,
                 log_active_weight=log_weight + math.log(initial_active_probability),
                 log_coast_weight=log_weight + math.log(1.0 - initial_active_probability),
             )
             for value in candidates
         ]
+        mode_count = len(self._timing)
+        self._timing_transition_counts = np.full(
+            (mode_count, mode_count),
+            self.config.timing_transition_pseudocount,
+            dtype=float,
+        )
+        self._timing_transition_counts += np.eye(mode_count) * (
+            self.config.timing_transition_stay_pseudocount
+        )
 
     @property
     def _timing_detection_probability(self) -> float:
@@ -313,128 +334,77 @@ class HMMEmitterModel1:
         total = active + coast
         return active / total, coast / total
 
-    def _normalize_timing(self) -> None:
-        values = np.asarray([
-            value
-            for item in self._timing
-            for value in (item.log_active_weight, item.log_coast_weight)
-        ])
-        normalizer = _logsumexp(values)
-        for item in self._timing:
-            item.log_active_weight -= normalizer
-            item.log_coast_weight -= normalizer
-
-    def _merge_and_prune_timing(self) -> None:
-        """Moment-merge nearly identical particles and retain distinct modes."""
-        if not self._timing:
-            return
-        groups: list[list[_TimingHypothesis]] = []
-        for item in sorted(self._timing, key=lambda value: value.pri_s):
-            if (not groups or abs(item.pri_s - groups[-1][-1].pri_s)
-                    > self.config.timing_merge_fraction * max(item.pri_s, groups[-1][-1].pri_s)):
-                groups.append([item])
-            else:
-                groups[-1].append(item)
-
-        merged = []
-        for group in groups:
-            active_weights = np.asarray([math.exp(item.log_active_weight) for item in group])
-            coast_weights = np.asarray([math.exp(item.log_coast_weight) for item in group])
-            weights = active_weights + coast_weights
-            total = float(weights.sum())
-            mean = float(sum(weight * item.pri_s for weight, item in zip(weights, group)) / total)
-            variance = float(sum(
-                weight * (item.variance_s2 + (item.pri_s - mean) ** 2)
-                for weight, item in zip(weights, group)
-            ) / total)
-            merged.append(_TimingHypothesis(
-                pri_s=mean,
-                variance_s2=max(variance, self.config.timing_toa_sigma_s**2),
-                log_active_weight=math.log(max(float(active_weights.sum()), 1e-300)),
-                log_coast_weight=math.log(max(float(coast_weights.sum()), 1e-300)),
-            ))
-
-        merged.sort(
-            key=lambda item: float(np.logaddexp(item.log_active_weight, item.log_coast_weight)),
-            reverse=True,
-        )
-        self._timing = merged[:self.config.timing_max_hypotheses]
-        self._normalize_timing()
-
-    def _active_gap_update(
+    def _timing_active_components(
         self,
-        hypothesis: _TimingHypothesis,
         gap_s: float,
+        active_source: np.ndarray,
+        transition: np.ndarray,
         detection_probability: float,
-    ) -> tuple[float, float, float, float, int]:
-        """Marginalize plausible elapsed interval counts for one PRI particle."""
-        predicted_variance = hypothesis.variance_s2 + (
-            self.config.timing_process_variance_fraction2_per_s
-            * hypothesis.pri_s**2 * gap_s
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Forward a Markov-additive PRI path for every elapsed interval count.
+
+        A multi-interval gap is a sum of possibly different PRI states. The
+        Gaussian mixture is moment-matched separately for each endpoint state;
+        it is never approximated as ``n * one PRI``.
+        """
+        mode_means = np.asarray([item.pri_s for item in self._timing])
+        predicted_variances = np.asarray([
+            item.variance_s2
+            + self.config.timing_process_variance_fraction2_per_s
+            * item.pri_s**2 * gap_s
+            for item in self._timing
+        ])
+        duration_variances = (
+            predicted_variances
+            + (self.config.timing_jitter_fraction * mode_means) ** 2
         )
-        centre = max(1, int(round(gap_s / hypothesis.pri_s)))
-        if centre > self.config.timing_max_active_intervals + 3:
-            # This gap cannot be represented by the bounded active-duration
-            # state. Leave the PRI untouched and let the coast emission win.
-            return (
-                math.log(1e-300),
-                hypothesis.pri_s,
-                predicted_variance,
-                float(self.config.timing_max_active_intervals),
-                self.config.timing_max_active_intervals,
-            )
-        candidates = np.arange(
-            max(1, centre - 3),
-            min(self.config.timing_max_active_intervals, centre + 3) + 1,
-            dtype=int,
-        )
-        log_components = []
-        updated_means = []
-        updated_variances = []
-        for intervals in candidates:
-            residual = gap_s - intervals * hypothesis.pri_s
-            observation_variance = (
-                intervals * (self.config.timing_jitter_fraction * hypothesis.pri_s) ** 2
-                + self.config.timing_toa_sigma_s**2
-            )
-            innovation_variance = intervals * intervals * predicted_variance + observation_variance
+
+        path_mass = active_source @ transition
+        accumulated_mean = mode_means.copy()
+        accumulated_variance = duration_variances.copy()
+        components = []
+        for intervals in range(1, self.config.timing_max_active_intervals + 1):
             log_interval_prior = (
                 math.log(detection_probability)
                 + (intervals - 1) * math.log1p(-detection_probability)
             )
-            log_components.append(
-                log_interval_prior + _normal_logpdf(residual, innovation_variance)
-            )
-            gain = predicted_variance * intervals / innovation_variance
-            updated_means.append(min(
-                self.config.timing_max_pri_s,
-                max(self.config.timing_min_pri_s, hypothesis.pri_s + gain * residual),
-            ))
-            updated_variances.append(max(
-                (1.0 - gain * intervals) * predicted_variance,
-                self.config.timing_toa_sigma_s**2,
-            ))
+            components.append(np.asarray([
+                math.log(max(float(path_mass[index]), 1e-300))
+                + log_interval_prior
+                + _normal_logpdf(
+                    gap_s - accumulated_mean[index],
+                    accumulated_variance[index] + self.config.timing_toa_sigma_s**2,
+                )
+                for index in range(len(self._timing))
+            ]))
+            if intervals == self.config.timing_max_active_intervals:
+                break
 
-        log_components_array = np.asarray(log_components)
-        log_likelihood = _logsumexp(log_components_array)
-        interval_weights = np.exp(log_components_array - log_likelihood)
-        mean = float(np.dot(interval_weights, updated_means))
-        variance = float(sum(
-            weight * (updated_variance + (updated_mean - mean) ** 2)
-            for weight, updated_mean, updated_variance in zip(
-                interval_weights, updated_means, updated_variances,
-            )
-        ))
-        expected_intervals = float(np.dot(interval_weights, candidates))
-        map_intervals = int(candidates[int(np.argmax(interval_weights))])
-        return log_likelihood, mean, variance, expected_intervals, map_intervals
+            incoming = path_mass[:, None] * transition
+            next_mass = incoming.sum(axis=0)
+            next_mean = np.empty_like(accumulated_mean)
+            next_variance = np.empty_like(accumulated_variance)
+            for endpoint in range(len(self._timing)):
+                weights = incoming[:, endpoint] / max(float(next_mass[endpoint]), 1e-300)
+                candidate_means = accumulated_mean + mode_means[endpoint]
+                candidate_variances = accumulated_variance + duration_variances[endpoint]
+                mean = float(np.dot(weights, candidate_means))
+                next_mean[endpoint] = mean
+                next_variance[endpoint] = float(np.dot(
+                    weights,
+                    candidate_variances + (candidate_means - mean) ** 2,
+                ))
+            path_mass = next_mass
+            accumulated_mean = next_mean
+            accumulated_variance = next_variance
+        return np.asarray(components), duration_variances
 
     def _timing_update(
         self,
         gap_s: float,
-    ) -> tuple[float, float | None, int | None, float | None]:
+    ) -> tuple[float, float | None, int | None, float | None, int | None]:
         if gap_s <= 0.0:
-            return 0.0, None, None, None
+            return 0.0, None, None, None, None
         if not self._timing:
             self._seed_timing(gap_s)
             best = max(
@@ -444,106 +414,126 @@ class HMMEmitterModel1:
                 )),
             )
             intervals = max(1, int(round(gap_s / best.pri_s)))
-            return 0.0, best.pri_s, intervals, float(intervals)
+            best_index = self._timing.index(best)
+            return 0.0, best.pri_s, intervals, float(intervals), best_index
 
         active_to_coast = self.config.timing_active_to_coast_probability
         coast_to_active = self.config.timing_coast_to_active_probability
-        detection_probability = self._timing_detection_probability
+        detection_probability = max(
+            self._timing_detection_probability,
+            self.config.timing_active_detection_floor,
+        )
         coast_log_likelihood = (
             -math.log(self.config.timing_coast_mean_gap_s)
             - gap_s / self.config.timing_coast_mean_gap_s
         )
-        updated: list[_TimingHypothesis] = []
-        expected_intervals = []
-        map_intervals = []
-        for hypothesis in self._timing:
-            predicted_active = float(np.logaddexp(
-                hypothesis.log_active_weight + math.log1p(-active_to_coast),
-                hypothesis.log_coast_weight + math.log(coast_to_active),
-            ))
-            predicted_coast = float(np.logaddexp(
-                hypothesis.log_active_weight + math.log(active_to_coast),
-                hypothesis.log_coast_weight + math.log1p(-coast_to_active),
-            ))
-            (
-                active_log_likelihood,
-                active_mean,
-                active_variance,
-                active_expected_intervals,
-                active_map_intervals,
-            ) = self._active_gap_update(
-                hypothesis, gap_s, detection_probability,
-            )
-            log_active_weight = predicted_active + active_log_likelihood
-            log_coast_weight = predicted_coast + coast_log_likelihood
-            conditional_active = math.exp(
-                log_active_weight - float(np.logaddexp(log_active_weight, log_coast_weight))
-            )
-            mean = (
-                conditional_active * active_mean
-                + (1.0 - conditional_active) * hypothesis.pri_s
-            )
-            variance = (
-                conditional_active * (
-                    active_variance + (active_mean - mean) ** 2
-                )
-                + (1.0 - conditional_active) * (
-                    hypothesis.variance_s2 + (hypothesis.pri_s - mean) ** 2
-                )
-            )
-            updated.append(_TimingHypothesis(
-                pri_s=mean,
-                variance_s2=max(
-                    variance,
-                    self.config.timing_toa_sigma_s**2,
-                ),
-                log_active_weight=log_active_weight,
-                log_coast_weight=log_coast_weight,
-            ))
-            expected_intervals.append(active_expected_intervals)
-            map_intervals.append(active_map_intervals)
-
-        joint_values = np.asarray([
-            value
-            for item in updated
-            for value in (item.log_active_weight, item.log_coast_weight)
+        previous_active = np.exp([
+            item.log_active_weight for item in self._timing
         ])
-        log_evidence = _logsumexp(joint_values)
-        for item in updated:
-            item.log_active_weight -= log_evidence
-            item.log_coast_weight -= log_evidence
-        self._timing = updated
+        previous_coast = np.exp([
+            item.log_coast_weight for item in self._timing
+        ])
+        transition = (
+            self._timing_transition_counts
+            / self._timing_transition_counts.sum(axis=1, keepdims=True)
+        )
+        active_source = (
+            previous_active * (1.0 - active_to_coast)
+            + previous_coast * coast_to_active
+        )
+        # Coast preserves the last timing mode; no unseen mode transition is
+        # invented while the emitter is not visible.
+        predicted_coast = (
+            previous_active * active_to_coast
+            + previous_coast * (1.0 - coast_to_active)
+        )
 
-        active_probability, coast_probability = self._timing_visibility_posterior()
+        active_components, duration_variances = self._timing_active_components(
+            gap_s, active_source, transition, detection_probability,
+        )
+        log_active_weights = np.asarray([
+            _logsumexp(active_components[:, index])
+            for index in range(len(self._timing))
+        ])
+        log_coast_weights = (
+            np.log(np.maximum(predicted_coast, 1e-300))
+            + coast_log_likelihood
+        )
+        joint_values = np.r_[log_active_weights, log_coast_weights]
+        log_evidence = _logsumexp(joint_values)
+        log_active_weights -= log_evidence
+        log_coast_weights -= log_evidence
+        posterior_active = np.exp(log_active_weights)
+        posterior_coast = np.exp(log_coast_weights)
+
+        component_posterior = np.exp(active_components - log_evidence)
+        interval_posterior = component_posterior.sum(axis=1)
+        active_probability = float(interval_posterior.sum())
+
+        # Direct one-interval gaps provide unambiguous state-transition and
+        # mode-centre evidence. Longer gaps contribute to filtering through the
+        # additive path likelihood but do not drag a mode toward gap / n.
+        mode_means = np.asarray([item.pri_s for item in self._timing])
+        direct_log_emission = np.asarray([
+            _normal_logpdf(
+                gap_s - mode_means[index],
+                duration_variances[index] + self.config.timing_toa_sigma_s**2,
+            )
+            for index in range(len(self._timing))
+        ])
+        direct_log_xi = (
+            np.log(np.maximum(active_source[:, None], 1e-300))
+            + np.log(np.maximum(transition, 1e-300))
+            + math.log(detection_probability)
+            + direct_log_emission[None, :]
+        )
+        self._timing_transition_counts += np.exp(direct_log_xi - log_evidence)
+
+        # Each timing state is an HMM emission state, not a competing global
+        # model. Low-posterior states remain available through the transition
+        # prior and therefore can recover when the waveform changes mode.
+        for index, hypothesis in enumerate(self._timing):
+            responsibility = float(component_posterior[0, index])
+            if responsibility > 1e-12:
+                residual = gap_s - hypothesis.pri_s
+                rate = responsibility / (hypothesis.effective_count + responsibility)
+                hypothesis.pri_s += rate * residual
+                # Intrinsic jitter belongs to the emission variance above. Do
+                # not let an occasional direct-gap ambiguity inflate a state
+                # into a broad catch-all timing mode.
+                hypothesis.variance_s2 = max(
+                    hypothesis.variance_s2,
+                    self.config.timing_toa_sigma_s**2,
+                )
+            hypothesis.log_active_weight = float(log_active_weights[index])
+            hypothesis.log_coast_weight = float(log_coast_weights[index])
+            hypothesis.effective_count += responsibility
+
+        coast_probability = float(posterior_coast.sum())
         if active_probability > 0.0:
-            active_joint = np.asarray([
-                math.exp(item.log_active_weight) for item in self._timing
-            ])
-            expected_count = float(np.dot(active_joint, expected_intervals) / active_probability)
+            interval_values = np.arange(1, len(interval_posterior) + 1)
+            expected_count = float(np.dot(
+                interval_posterior, interval_values,
+            ) / active_probability)
             self._timing_detection_alpha += active_probability
             self._timing_detection_beta += active_probability * max(expected_count - 1.0, 0.0)
         else:
             expected_count = None
 
-        best_active_index = int(np.argmax([
-            item.log_active_weight for item in self._timing
-        ]))
+        best_active_index = int(np.argmax(posterior_active))
+        map_intervals = int(np.argmax(interval_posterior)) + 1
         selected_intervals = (
-            map_intervals[best_active_index]
+            map_intervals
             if active_probability >= coast_probability else None
         )
-        self._merge_and_prune_timing()
-        best = max(
-            self._timing,
-            key=lambda item: float(np.logaddexp(
-                item.log_active_weight, item.log_coast_weight,
-            )),
-        )
+        mode_posterior = posterior_active + posterior_coast
+        best_index = int(np.argmax(mode_posterior))
         return (
             log_evidence,
-            best.pri_s,
+            self._timing[best_index].pri_s,
             selected_intervals,
             expected_count,
+            best_index,
         )
 
     def process(self, pdw: PDW) -> HMMModel1Update:
@@ -559,9 +549,14 @@ class HMMEmitterModel1:
             timing_pri,
             timing_intervals,
             timing_expected_intervals,
+            timing_map_mode,
         ) = self._timing_update(elapsed_s)
         timing_active, timing_coast = self._timing_visibility_posterior()
         timing_mean, timing_sigma = self._timing_moments()
+        timing_mode_posterior = tuple(
+            math.exp(np.logaddexp(item.log_active_weight, item.log_coast_weight))
+            for item in self._timing
+        )
         self._last_toa_s = pdw.toa_s
         self._updates += 1
         total = rf_log_evidence + aoa_log_evidence + timing_log_evidence
@@ -585,6 +580,8 @@ class HMMEmitterModel1:
             timing_detection_probability=self._timing_detection_probability,
             timing_posterior_mean_pri_s=timing_mean,
             timing_posterior_sigma_s=timing_sigma,
+            timing_mode_posterior=timing_mode_posterior,
+            timing_map_mode=timing_map_mode,
             timing_hypothesis_count=len(self._timing),
             total_log_evidence=total,
         )
@@ -599,8 +596,18 @@ class HMMEmitterModel1:
             for item in self._timing
         ])
         timing_order = np.argsort(-timing_weights) if len(timing_weights) else []
+        timing_transition = (
+            self._timing_transition_counts
+            / self._timing_transition_counts.sum(axis=1, keepdims=True)
+            if len(self._timing_transition_counts) else np.empty((0, 0))
+        )
         timing_active, timing_coast = self._timing_visibility_posterior()
         timing_mean, timing_sigma = self._timing_moments()
+        learned_timing_indices = [
+            index for index, item in enumerate(self._timing)
+            if item.effective_count - 1.0 >= self.config.timing_mode_report_min_support
+        ]
+        learned_timing_indices.sort(key=lambda index: self._timing[index].pri_s)
         return {
             "model": "Rao-Blackwellised emitter HMM Model 1",
             "enabled_features": list(self.enabled_features),
@@ -632,8 +639,21 @@ class HMMEmitterModel1:
                     "coast_posterior": math.exp(
                         self._timing[index].log_coast_weight
                     ),
+                    "effective_count": self._timing[index].effective_count,
+                    "state_index": int(index),
                 }
                 for index in timing_order
+            ],
+            "timing_transition_matrix": timing_transition.tolist(),
+            "timing_learned_modes": [
+                {
+                    "state_index": int(index),
+                    "pri_s": self._timing[index].pri_s,
+                    "sigma_s": math.sqrt(self._timing[index].variance_s2),
+                    "effective_support": self._timing[index].effective_count - 1.0,
+                    "posterior": float(timing_weights[index]),
+                }
+                for index in learned_timing_indices
             ],
             "timing_visibility": {
                 "active_posterior": timing_active,

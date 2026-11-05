@@ -113,15 +113,27 @@ def test_detection_probability_is_learned_from_soft_interval_counts():
     assert 0.5 < missed_probability < full_probability
 
 
-def test_timing_particles_are_merged_into_distinct_hypotheses():
+def test_timing_hmm_learns_multiple_pri_modes_and_their_transition_topology():
     tracker = HMMEmitterModel1()
-    for index in range(100):
-        tracker.process(pdw(index, index * 10, 1000, 15.0))
-    timing = sorted(tracker.snapshot()["timing_hypotheses"], key=lambda item: item["pri_s"])
-    assert len(timing) < tracker.config.timing_max_hypotheses
-    for left, right in zip(timing, timing[1:]):
-        separation = (right["pri_s"] - left["pri_s"]) / right["pri_s"]
-        assert separation > 0.009
+    gaps_us = [33, *([7, 9, 11] * 100)]
+    toa_us = np.cumsum([0, *gaps_us])
+    updates = [tracker.process(pdw(index, toa, 1000, 15.0))
+               for index, toa in enumerate(toa_us)]
+    state = tracker.snapshot()
+    learned = sorted(
+        [item for item in state["timing_hypotheses"] if item["effective_count"] > 20],
+        key=lambda item: item["pri_s"],
+    )
+    assert [item["pri_s"] * 1e6 for item in learned] == pytest.approx(
+        [7.0, 9.0, 11.0], abs=0.05,
+    )
+    transition = np.asarray(state["timing_transition_matrix"])
+    assert np.allclose(transition.sum(axis=1), 1.0)
+    indices = [item["state_index"] for item in learned]
+    assert transition[indices[0], indices[1]] > 0.9
+    assert transition[indices[1], indices[2]] > 0.9
+    assert transition[indices[2], indices[0]] > 0.9
+    assert [round(update.timing_map_pri_s * 1e6) for update in updates[-3:]] == [7, 9, 11]
 
 
 def test_circular_aoa_markov_filter_crosses_wrap_boundary():

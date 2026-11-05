@@ -10,10 +10,11 @@ evidence, not the active tracker architecture.
 The active implementation is [HMM Model 1](hmm_tracker_model1.md): raw E46 PDWs
 selected outside inference update one Rao-Blackwellised state filter using only
 Frequency, TOA and AOA. RF uses a full forward posterior and expected transition
-counts; AOA uses a circular continuous Markov filter; TOA uses normalized
-semi-Markov PRI hypotheses with latent elapsed interval counts. Every E46 pulse
-updates the filter. PW and amplitude are explicitly excluded and tested for
-invariance. This is emitter-state validation, not yet multi-emitter association.
+counts; AOA uses a circular continuous Markov filter; TOA uses a
+visibility-aware PRI-mode HMM with latent elapsed interval counts. Every E46
+pulse updates the filter. PW and amplitude are explicitly excluded and tested
+for invariance. This is emitter-state validation, not yet multi-emitter
+association.
 
 The next matched version will add PW to the same model and input only after the
 user runs and reviews Model 1. Birth, clutter and bounded multi-emitter
@@ -41,6 +42,23 @@ At that same pulse, the RF posterior, RF evidence, AOA mean, AOA covariance,
 AOA innovation and AOA evidence are exactly unchanged. The old complete run
 later ended at the failed 2.032-microsecond submultiple. This is implementation
 and wiring evidence only; the matched 12,530-pulse clean replay remains pending.
+
+That clean replay at commit `3eb8383` processed all 12,530 pulses and retained a
+single effective timing state at 10.633 microseconds with 0.027-microsecond
+posterior sigma. This accurately matches one evaluation-only E46 configuration
+value (10.637 microseconds), but the same metadata lists two additional jittered
+values at 8.572 and 6.697 microseconds. The model therefore passed one-state
+identification but failed the requested timing-agility topology.
+
+The next timing-only revision treats retained candidates as recoverable HMM
+states with learned soft transitions. For a missed-pulse gap it forwards a
+Markov-additive path whose duration is the sum of possibly different PRI modes;
+only direct one-interval evidence moves mode centres. A controlled fixture
+learns distinct 7, 9 and 11 microsecond states and the 7 → 9 → 11 → 7 topology.
+A 500-pulse canonical E46 smoke forms directly supported states near 6.711,
+8.658 and 10.966 microseconds while transparently retaining a 32.249-microsecond
+ambiguity. RF and AOA remain frozen and PW remains excluded. Full clean replay
+acceptance is pending.
 
 ## Parallel experiment: sequential raw-PDW tracker
 

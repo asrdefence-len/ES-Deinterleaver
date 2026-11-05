@@ -50,11 +50,12 @@ def main() -> None:
         for update in updates if update.timing_hypothesis_count
     ]
     transition = np.asarray(snapshot["rf_transition_matrix"], dtype=float)
+    timing_transition = np.asarray(snapshot["timing_transition_matrix"], dtype=float)
     log_evidence = np.asarray([update.total_log_evidence for update in updates], dtype=float)
     provenance = run_provenance(args.dataset)
     provenance["processing_path"] = (
         "truth-isolated raw PDWs -> RF HMM forward filter + circular AOA Markov "
-        "filter + visibility-aware hidden semi-Markov TOA/PRI posterior"
+        "filter + visibility-aware Markov-additive PRI-mode HMM"
     )
     result = {
         "status": "proper HMM Model 1 component test; not a deinterleaving benchmark",
@@ -72,6 +73,9 @@ def main() -> None:
             "max_rf_posterior_sum_error": max(posterior_errors, default=0.0),
             "max_timing_visibility_sum_error": max(timing_visibility_errors, default=0.0),
             "rf_transition_row_sums": transition.sum(axis=1).tolist() if transition.size else [],
+            "timing_transition_row_sums": (
+                timing_transition.sum(axis=1).tolist() if timing_transition.size else []
+            ),
             "all_log_evidence_finite": bool(np.isfinite(log_evidence).all()),
             "pulse_width_excluded": "PulseWidth" in snapshot["excluded_features"],
             "amplitude_excluded": "Amplitude" in snapshot["excluded_features"],
@@ -89,7 +93,12 @@ def main() -> None:
     print(f"Processed {len(updates)} PDWs; every pulse updated one HMM filter")
     print(f"RF states learned: {len(snapshot['rf_states'])}")
     print(f"AOA: {snapshot['aoa']['mean_deg']:.3f} deg +/- {snapshot['aoa']['sigma_deg']:.3f} deg")
-    print(f"Timing hypotheses retained: {len(snapshot['timing_hypotheses'])}")
+    learned_timing = snapshot["timing_learned_modes"]
+    print(f"Timing candidate states retained: {len(snapshot['timing_hypotheses'])}")
+    print(
+        "Timing modes with direct support: "
+        + ", ".join(f"{item['pri_s'] * 1e6:.3f} us" for item in learned_timing)
+    )
     print(
         "Timing visibility: "
         f"active={snapshot['timing_visibility']['active_posterior']:.3f}, "

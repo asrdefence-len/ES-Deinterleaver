@@ -46,21 +46,26 @@ degree boundary correctly.
 
 ### TOA visibility-aware hidden semi-Markov model
 
-The timing filter retains a normalized joint posterior over distinct PRI
-hypotheses and two hidden visibility states:
+The timing filter retains a normalized joint posterior over adaptive PRI modes
+and two hidden visibility states:
 
 - **Active:** the gap spans one or more transmitter intervals. The filter
-  marginalizes all locally plausible integer interval counts using a geometric
-  missed-detection prior and updates the PRI mean and variance by moment
-  matching.
+  marginalizes possible elapsed interval counts using a geometric
+  missed-detection prior. Each interval can occupy a different PRI mode.
 - **Coast:** the receiver was not observing an ordinary pulse interval. A broad
   gap density explains scan or visibility gaps and the PRI state is preserved.
 
 Active/coast probabilities pass through a two-state Markov transition matrix
 before each gap likelihood. The pulse-detection probability has a Beta
-posterior and is learned from the soft active-interval counts. Nearly identical
-PRI particles are explicitly moment-merged, so 64 duplicate copies cannot be
-misrepresented as 64 independent timing explanations.
+posterior and is learned from the soft active-interval counts. PRI modes have a
+separate learned transition matrix, updated from soft expected transitions in
+the same manner as the RF HMM.
+
+A multi-interval gap is evaluated as a Markov-additive path: the predicted gap
+is the sum of the possibly different PRI modes traversed by the hidden pulses.
+It is never approximated as `n * one PRI`. Only direct one-interval evidence
+moves a PRI-mode centre, preventing long mixed-mode gaps from dragging states
+toward subharmonics.
 
 This structure gives long gaps a proper hidden-state explanation instead of
 requiring thousands of ordinary missed pulses. It also makes a fundamental PRI
@@ -69,8 +74,8 @@ interval has higher prior probability than repeatedly requiring two, three or
 more intervals.
 
 The complete Model 1 state is therefore a Rao-Blackwellised/factorial state:
-a discrete RF HMM posterior, a continuous circular AOA posterior and a discrete
-bank of semi-Markov timing hypotheses.
+a discrete RF HMM posterior, a continuous circular AOA posterior and a
+visibility-aware discrete PRI-mode HMM.
 
 ## Verification
 
@@ -82,15 +87,22 @@ Focused tests require:
 - Repeated short gaps select the fundamental PRI over its subharmonics.
 - Long gaps switch to coast, preserve the PRI posterior and return to active.
 - Visibility probabilities normalize and the detection probability is learned.
-- Near-duplicate timing particles are explicitly merged.
+- A controlled 7 → 9 → 11 microsecond sequence learns three distinct PRI modes
+  and the corresponding cyclic transition topology.
+- Multi-interval likelihoods sum paths through possibly different PRI modes.
 - Circular AOA filtering remains continuous across the wrap boundary.
 
-A 500-pulse schema smoke test on canonical E46 learned eight RF states,
-processed every pulse, retained 11 distinct timing hypotheses and placed the
-leading timing posterior at 10.658 microseconds. The learned pulse-detection
-probability was 0.237 and all probabilities and evidence remained finite. This
-is wiring evidence from a dirty development tree, not the full benchmark or
-performance acceptance.
+The preceding complete E46 replay at commit `3eb8383` correctly found one
+10.633-microsecond timing value but assigned it effectively all timing mass.
+Evaluation-only metadata inspected afterward lists three E46 jittered timing
+values: 6.697, 8.572 and 10.637 microseconds. The new multi-mode implementation
+therefore remains a timing-only correction; those metadata values are not read
+by inference.
+
+On a 500-pulse dirty-tree smoke, the new HMM formed directly supported states
+near 6.711, 8.658 and 10.966 microseconds. It also retained a supported
+32.249-microsecond ambiguity, so this smoke is wiring evidence rather than
+performance acceptance. The clean complete replay remains the decision point.
 
 ## Local E46 run
 
