@@ -6,6 +6,11 @@ from .detected_train_timing import (
     DetectedTrainTimingUpdate,
 )
 from .hmm_emitter import HMMEmitterModel1, HMMModel1Config, HMMModel1Update
+from .hmm_emitter_model2 import (
+    HMMEmitterModel2,
+    HMMModel2Config,
+    HMMModel2Update,
+)
 from .model import PDW, AssociationDecision, TrackSnapshot
 from .phase_timing_shadow import (
     PhaseTimingFit,
@@ -21,8 +26,11 @@ __all__ = [
     "DetectedTrainTimingEstimator",
     "DetectedTrainTimingUpdate",
     "HMMEmitterModel1",
+    "HMMEmitterModel2",
     "HMMModel1Config",
     "HMMModel1Update",
+    "HMMModel2Config",
+    "HMMModel2Update",
     "PDW",
     "PhaseTimingFit",
     "PhaseTimingShadowConfig",

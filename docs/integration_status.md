@@ -1,6 +1,6 @@
 # Integration status
 
-## Active sequential architecture: proper HMM Model 1
+## Active sequential architecture: Model 1 reference and Model 2 PW increment
 
 Incremental patching of the causal MAP surrogate has stopped. It multiplied
 uncalibrated compatibility scores, committed immediately to track/birth/clutter
@@ -17,9 +17,18 @@ evidence. Every E46 pulse updates the filter. PW and amplitude are explicitly
 excluded and tested for invariance. This is emitter-state validation, not yet
 multi-emitter association.
 
-PW will be added only after the user reviews this timing boundary and the full
-E46 shadow output. Birth, clutter and bounded multi-emitter hypotheses remain
-outside this milestone.
+The user has reviewed the timing boundary and requested
+[Model 2](hmm_tracker_model2.md). Model 2 changes only one component: it adds a
+separate log-PW HMM with soft state and transition updates. It subclasses Model
+1, so RF, AOA and the timing shadow execute through the unchanged implementation.
+Amplitude remains excluded. Birth, clutter and bounded multi-emitter hypotheses
+remain outside this milestone.
+
+On a matched 500-pulse canonical E46 wiring smoke, Model 2 discovers three PW
+states at 0.101, 0.271 and 0.427 µs. All saved Model 1 RF, AOA and timing fields
+over the same 500 pulses are exactly unchanged. Focused Model 1/Model 2 tests
+pass. This is component implementation evidence, not PW association acceptance;
+the clean complete 12,530-pulse user replay remains pending.
 
 The first complete Model 1 E46 run processed all 12,530 selected pulses, learned
 eight RF states, retained a normalized RF transition matrix and ended with an

@@ -162,5 +162,7 @@ log-likelihood ratio is +0.222 and 76.0% of gaps provide positive evidence. The
 half-cycle control averages -1.116. This establishes modest predictive timing
 information, not permission to use timing as a veto: 22.1% of held-out active
 gaps are not scoreable and 24.0% of scored gaps have negative evidence. Feedback
-therefore remains zero pending user review and a bounded-weight association
-ablation. PW addition and multi-emitter association remain later milestones.
+therefore remains zero pending a bounded-weight association ablation. The
+separate [Model 2](hmm_tracker_model2.md) experiment now adds PW while preserving
+this complete Model 1 path unchanged. Multi-emitter association remains a later
+milestone.
