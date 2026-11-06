@@ -408,3 +408,24 @@ The exact boundary, commands, result and limitations are recorded in
 single investigation is bounded tentative-hypothesis admission and eviction:
 unconfirmed one-pulse births must earn a permanent slot, while Model 2 evidence,
 timing and confirmed-track competition remain frozen.
+
+## Separate raw-PDW HMM experiment: 256-track capacity diagnostic
+
+Before changing lifecycle, a matched diagnostic changes only the full-scene
+capacity from 8 to 256. Capacity is never reached: the tracker creates 36
+identities, confirms 24 at the existing 256-pulse requirement and leaves 12
+tentative. It assigns 98.84% of all PDWs, including 99.60% of E46 and 99.97% of
+E38.
+
+This apparent recovery is not full-scene tracking acceptance. Evaluation-
+weighted identity purity is only 62.98%. Eighteen tracks contain multiple truth
+emitters, eight fall below 90% purity, and the largest track contains 528,221
+PDWs from 25 truth emitters at only 47.03% purity. Its frozen threshold is near
+`-3477.4`, showing that a mixed AOA-only tentative history can confirm an
+extremely permissive catch-all track.
+
+The exact command, result and limitations are in
+[Model 2 high-capacity birth diagnostic](model2_high_capacity_diagnostic.md).
+The next single change is confirmation validation using held-out Frequency +
+AOA + PW evidence. Lifecycle expiry, retirement and reacquisition follow as a
+separate stage after confirmation is trustworthy.

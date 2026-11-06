@@ -27,11 +27,27 @@ def main() -> None:
     )
     parser.add_argument("--diagnostics", type=Path)
     parser.add_argument("--progress-every", type=int, default=100_000)
+    parser.add_argument(
+        "--max-tracks", type=int, default=8,
+        help="Frozen simultaneous track capacity (default: 8)",
+    )
+    parser.add_argument(
+        "--end-activity-window-s", type=float, default=0.5,
+        help=(
+            "Evaluation-only recency window used to report tracks updated "
+            "near the end of the recording"
+        ),
+    )
     args = parser.parse_args()
     if args.progress_every < 1:
         raise ValueError("progress interval must be positive")
+    if args.max_tracks < 1:
+        raise ValueError("maximum tracks must be positive")
+    if args.end_activity_window_s <= 0.0:
+        raise ValueError("end activity window must be positive")
 
     birth_config = Model2BirthConfig(
+        max_tracks=args.max_tracks,
         enable_timing_after_confirmation=True,
         enable_safe_confirmed_pruning=True,
     )
@@ -47,6 +63,7 @@ def main() -> None:
     diagnostic_records = 0
     capacity_first_reached = None
     processed = 0
+    final_toa_s = None
     diagnostic_handle = None
     try:
         if args.diagnostics:
@@ -54,6 +71,7 @@ def main() -> None:
             diagnostic_handle = args.diagnostics.open("w")
         for pdw, label in iter_pdws(args.dataset):
             processed += 1
+            final_toa_s = pdw.toa_s
             truth = str(label)
             truth_counts[truth] += 1
             decision = tracker.process(pdw)
@@ -109,6 +127,8 @@ def main() -> None:
             diagnostic_handle.close()
 
     snapshots = tracker.snapshots()
+    if final_toa_s is None:
+        raise ValueError("dataset contains no PDWs")
     mapping = {}
     track_rows = []
     for snapshot in snapshots:
@@ -128,6 +148,11 @@ def main() -> None:
             "truth_counts_evaluation_only": dict(counts.most_common()),
             "first_toa_s": snapshot["first_toa_s"],
             "last_toa_s": snapshot["last_toa_s"],
+            "age_at_recording_end_s": final_toa_s - snapshot["last_toa_s"],
+            "updated_within_end_activity_window": (
+                final_toa_s - snapshot["last_toa_s"]
+                <= args.end_activity_window_s
+            ),
             "threshold": snapshot["threshold"],
             "timing_fit": snapshot["timing_fit"],
             "rf_state_count": len(snapshot["model"]["rf_states"]),
@@ -165,6 +190,34 @@ def main() -> None:
             ),
         }
 
+    dominant_truth_total = sum(
+        row["dominant_truth_count_evaluation_only"] for row in track_rows
+    )
+    identity_evaluation = {
+        "weighted_track_purity": (
+            dominant_truth_total / assigned_pdws if assigned_pdws else None
+        ),
+        "distinct_dominant_truth_emitters": len({
+            row["dominant_truth_emitter_evaluation_only"]
+            for row in track_rows
+            if row["dominant_truth_emitter_evaluation_only"] is not None
+        }),
+        "tracks_with_multiple_truth_emitters": sum(
+            len(row["truth_counts_evaluation_only"]) > 1
+            for row in track_rows
+        ),
+        "tracks_below_90_percent_purity": sum(
+            row["evaluation_purity"] is not None
+            and row["evaluation_purity"] < 0.9
+            for row in track_rows
+        ),
+        "maximum_truth_emitters_in_one_track": max(
+            (len(row["truth_counts_evaluation_only"])
+             for row in track_rows),
+            default=0,
+        ),
+    }
+
     result = {
         "status": (
             "frozen Model 2 automatic-birth full-scene stress replay; no truth "
@@ -196,10 +249,18 @@ def main() -> None:
             "outcomes": dict(outcomes),
             "rejection_reasons": dict(rejection_reasons),
             "safe_upper_bound_pruned_track_scores": score_upper_bound_pruned,
+            "end_activity_window_s_evaluation_only": (
+                args.end_activity_window_s
+            ),
+            "tracks_updated_within_end_activity_window": sum(
+                row["updated_within_end_activity_window"]
+                for row in track_rows
+            ),
             "tracks": track_rows,
             "lifecycle_events": lifecycle_events,
         },
         "target_evaluation": target_evaluation,
+        "identity_evaluation": identity_evaluation,
         "controlled_reference": {
             "description": (
                 "same birth/HMM/timing settings on the prior background-free "
@@ -210,7 +271,12 @@ def main() -> None:
             "tracks": 2,
             "fragments_per_target": 1,
         },
-        "config": {"birth": asdict(birth_config)},
+        "config": {
+            "birth": asdict(birth_config),
+            "end_activity_window_s_evaluation_only": (
+                args.end_activity_window_s
+            ),
+        },
         "final_snapshots": snapshots,
     }
     result["provenance"]["processing_path"] = (
@@ -261,6 +327,14 @@ def main() -> None:
             f"primary {row['primary_track_id']} retained "
             f"{row['primary_track_retained']:,}"
         )
+    print(
+        "Evaluation weighted track purity: "
+        f"{identity_evaluation['weighted_track_purity']:.2%}; "
+        "distinct dominant emitters "
+        f"{identity_evaluation['distinct_dominant_truth_emitters']}; "
+        "mixed tracks "
+        f"{identity_evaluation['tracks_with_multiple_truth_emitters']}"
+    )
     print(f"Wrote {args.output}")
 
 

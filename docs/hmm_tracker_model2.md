@@ -121,3 +121,10 @@ passes all 844,999 Config 101 PDWs to the same manager. It fails: the eight-trac
 capacity is consumed by pulse 9, and neither E46 nor E38 is ever assigned. This
 locates the next problem in tentative-birth capacity management, not in another
 incremental change to the mature Model 2 observation equations.
+
+A subsequent [256-track capacity diagnostic](model2_high_capacity_diagnostic.md)
+removes immediate capacity exhaustion without changing confirmation or HMM
+evidence. E46/E38 coverage recovers, but global weighted identity purity is only
+62.98%, including one confirmed track containing 25 truth emitters. The next
+isolated component is therefore confirmation validation; lifecycle is added
+only after a mixed candidate can no longer confirm as a permissive catch-all.

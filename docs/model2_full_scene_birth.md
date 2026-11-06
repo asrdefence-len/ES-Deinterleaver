@@ -76,3 +76,10 @@ hypotheses must release their capacity. This should be evaluated first on the
 same full-scene input before adding confirmed-track deletion, changing the
 eight-track operating limit or tuning evidence thresholds.
 
+The first follow-up deliberately changes only capacity to 256 before
+implementing that policy. Its result is recorded in
+[Model 2 high-capacity birth diagnostic](model2_high_capacity_diagnostic.md):
+capacity is no longer limiting, but a mixed candidate can still accumulate
+enough pulses to confirm as a catch-all identity. This separates confirmation
+validation from later lifecycle management.
+

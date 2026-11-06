@@ -10,6 +10,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 import numpy as np
 
 
@@ -22,6 +24,9 @@ def plot_full_scene(result: dict, output: Path) -> None:
     figure, axes = plt.subplots(2, 2, figsize=(14, 11))
     lifecycle_axis, composition_axis, rejection_axis, target_axis = axes.flat
 
+    max_tracks = result.get("config", {}).get("birth", {}).get(
+        "max_tracks", len(tracks),
+    )
     track_ids = [row["track_id"] for row in tracks]
     track_positions = {track_id: index for index, track_id in enumerate(track_ids)}
     for event_name, marker, colour in (
@@ -35,59 +40,118 @@ def plot_full_scene(result: dict, output: Path) -> None:
             marker=marker, s=48, color=colour, label=event_name.title(),
         )
     capacity = result["tracker"]["capacity_first_reached"]
-    lifecycle_axis.axvline(
-        capacity["processed_pdws"], color="tab:red", linestyle="--",
-        label=f"Capacity full at pulse {capacity['processed_pdws']}",
-    )
+    if capacity is not None:
+        lifecycle_axis.axvline(
+            capacity["processed_pdws"], color="tab:red", linestyle="--",
+            label=f"Capacity full at pulse {capacity['processed_pdws']}",
+        )
     lifecycle_axis.set_xscale("log")
-    lifecycle_axis.set_yticks(range(len(track_ids)), track_ids)
+    if len(track_ids) <= 32:
+        lifecycle_axis.set_yticks(range(len(track_ids)), track_ids)
+    else:
+        lifecycle_axis.set_yticks([])
     lifecycle_axis.set(
         xlabel="Chronological input pulse (log scale)",
         ylabel="Automatic track",
-        title="All eight birth slots are consumed before confirmation",
+        title=(
+            f"Birth and confirmation history at {max_tracks}-track capacity"
+        ),
     )
     lifecycle_axis.legend(fontsize=8)
 
-    label_totals = Counter()
-    for track in tracks:
-        label_totals.update(track["truth_counts_evaluation_only"])
-    display_labels = [label for label, _count in label_totals.most_common(8)]
-    positions = np.arange(len(tracks))
-    bottoms = np.zeros(len(tracks))
-    colour_map = plt.get_cmap("tab10")
-    for label_index, label in enumerate(display_labels):
-        values = np.asarray([
-            track["truth_counts_evaluation_only"].get(label, 0)
+    if len(tracks) <= 32:
+        label_totals = Counter()
+        for track in tracks:
+            label_totals.update(track["truth_counts_evaluation_only"])
+        display_labels = [
+            label for label, _count in label_totals.most_common(8)
+        ]
+        positions = np.arange(len(tracks))
+        bottoms = np.zeros(len(tracks))
+        colour_map = plt.get_cmap("tab10")
+        for label_index, label in enumerate(display_labels):
+            values = np.asarray([
+                track["truth_counts_evaluation_only"].get(label, 0)
+                for track in tracks
+            ])
+            composition_axis.bar(
+                positions, values, bottom=bottoms,
+                color=colour_map(label_index % 10), label=f"E{label}",
+            )
+            bottoms += values
+        other = np.asarray([
+            track["assigned_count_evaluation"]
+            - sum(track["truth_counts_evaluation_only"].get(label, 0)
+                  for label in display_labels)
             for track in tracks
         ])
-        composition_axis.bar(
-            positions, values, bottom=bottoms,
-            color=colour_map(label_index % 10), label=f"E{label}",
+        if np.any(other > 0):
+            composition_axis.bar(
+                positions, other, bottom=bottoms, color="0.65", label="Other",
+            )
+        composition_axis.set_xticks(
+            positions,
+            [
+                f"{track['track_id']}\n"
+                f"E{track['dominant_truth_emitter_evaluation_only']}\n"
+                f"{track['evaluation_purity']:.1%}"
+                for track in tracks
+            ],
         )
-        bottoms += values
-    other = np.asarray([
-        track["assigned_count_evaluation"]
-        - sum(track["truth_counts_evaluation_only"].get(label, 0)
-              for label in display_labels)
-        for track in tracks
-    ])
-    if np.any(other > 0):
-        composition_axis.bar(
-            positions, other, bottom=bottoms, color="0.65", label="Other",
+        composition_axis.set(
+            ylabel="Assigned PDWs",
+            title="Final automatic-track composition and evaluation purity",
         )
-    composition_axis.set_xticks(
-        positions,
-        [
-            f"{track['track_id']}\nE{track['dominant_truth_emitter_evaluation_only']}\n"
-            f"{track['evaluation_purity']:.1%}"
-            for track in tracks
-        ],
-    )
-    composition_axis.set(
-        ylabel="Assigned PDWs",
-        title="Final automatic-track composition and evaluation purity",
-    )
-    composition_axis.legend(fontsize=7, ncol=3)
+        composition_axis.legend(fontsize=7, ncol=3)
+    else:
+        ranked = sorted(
+            tracks,
+            key=lambda row: row["assigned_count_evaluation"],
+            reverse=True,
+        )
+        positions = np.arange(1, len(ranked) + 1)
+        confirmed = np.asarray([
+            row.get("status") == "confirmed" for row in ranked
+        ])
+        counts = np.asarray([
+            row["assigned_count_evaluation"] for row in ranked
+        ])
+        colours = np.where(confirmed, "tab:green", "tab:orange")
+        composition_axis.bar(positions, counts, color=colours, width=1.0)
+        composition_axis.set_yscale("log")
+        composition_axis.set(
+            xlabel="Automatic tracks ranked by assigned support",
+            ylabel="Assigned PDWs (log scale)",
+            title="Which births accumulate durable support?",
+        )
+        purity_axis = composition_axis.twinx()
+        purity_axis.scatter(
+            positions,
+            [row["evaluation_purity"] for row in ranked],
+            s=8, color="black", alpha=0.45, label="Evaluation purity",
+        )
+        purity_axis.set_ylim(0.0, 1.05)
+        purity_axis.set_ylabel("Evaluation purity")
+        weighted_purity = sum(
+            row["dominant_truth_count_evaluation_only"] for row in ranked
+        ) / sum(row["assigned_count_evaluation"] for row in ranked)
+        composition_axis.set_title(
+            "Which births accumulate durable support? "
+            f"Weighted identity purity: {weighted_purity:.1%}"
+        )
+        composition_axis.legend(
+            handles=(
+                Patch(color="tab:green", label="Confirmed"),
+                Patch(color="tab:orange", label="Tentative"),
+                Line2D(
+                    [0], [0], marker="o", color="none",
+                    markerfacecolor="black", alpha=0.45,
+                    label="Evaluation purity",
+                ),
+            ),
+            fontsize=7,
+            loc="upper right",
+        )
 
     assigned = result["tracker"]["assigned_pdws"]
     rejected = result["input_boundary"]["source_pdws"] - assigned
@@ -149,7 +213,7 @@ def plot_full_scene(result: dict, output: Path) -> None:
     target_axis.set_ylim(0.0, 1.08)
     target_axis.set(
         ylabel="Assigned coverage",
-        title="Target retention collapses when background birth is enabled",
+        title="Controlled-mixture versus full-scene target coverage",
     )
     target_axis.legend(fontsize=8)
 
@@ -158,7 +222,7 @@ def plot_full_scene(result: dict, output: Path) -> None:
     figure.suptitle(
         "HMM Model 2 — frozen full-scene automatic-birth stress replay\n"
         f"{result['input_boundary']['source_pdws']:,} unfiltered PDWs; "
-        "eight-track limit unchanged; E46/E38 retention failed",
+        f"{max_tracks}-track capacity; E46/E38 shown as evaluation targets",
         fontsize=14,
     )
     figure.subplots_adjust(
