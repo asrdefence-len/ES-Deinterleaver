@@ -109,3 +109,9 @@ held-out association experiments without changing the Model 2 state equations:
 
 These are controlled seeded experiments. They do not yet supply automatic
 track birth, unknown-emitter discovery or lifecycle management.
+
+The next controlled milestone, [Model 2 automatic birth](model2_automatic_birth.md),
+removes the pre-created HMMs. Two tentative filters are initiated and confirmed
+from an interleaved, tracker-unlabelled E46/E38 stream. Background emitters are
+still excluded, so this validates the initiation mechanism rather than full-
+scene discovery or lifecycle management.

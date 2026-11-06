@@ -365,3 +365,25 @@ The exact boundary, commands, provenance and limitations are recorded in
 [Model 2 controlled two-emitter competition](model2_two_emitter_competition.md).
 The next single component is track initiation/birth from the unlabelled stream;
 the evidence, timing and competition settings should remain frozen.
+
+## Separate raw-PDW HMM experiment: automatic birth control
+
+Automatic initiation is now isolated on a truth-selected but tracker-unlabelled
+E46/E38 mixture. No HMM exists initially. Tentative tracks use only a fixed
+3-degree AOA-continuity gate while their Model 2 RF/PW states are learned; after
+256 pulses, each freezes a threshold from its own last 128 predictive scores and
+enters the existing competition. Near-AOA rejections are not allowed to create
+duplicate tracks.
+
+The Config 101 development replay processes all 24,741 interleaved target
+pulses. Both timing arms create exactly two confirmed identities: T1 maps to E38
+and T2 to E46, with 100% assigned-pulse purity and one fragment per emitter.
+Timing on retains 12,409/12,530 E46 pulses and 11,877/12,211 E38 pulses, with
+zero cross-assignments. It rescues 29 pulses relative to timing off and loses
+none. This is a strong initiation-control result, not a full-scene benchmark:
+all background emitters were excluded before the tracker.
+
+The exact staged model, commands, provenance, online-timing disagreement and
+limitations are in [Model 2 automatic birth](model2_automatic_birth.md). The
+next single change is adding background PDWs while holding birth, evidence,
+threshold and timing settings fixed.

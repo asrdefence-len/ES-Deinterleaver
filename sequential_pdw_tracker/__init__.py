@@ -25,6 +25,11 @@ from .model2_competition import (
     Model2CompetitionDecision,
     Model2CompetitiveAssociation,
 )
+from .model2_birth import (
+    Model2AutomaticBirthTracker,
+    Model2BirthConfig,
+    Model2BirthDecision,
+)
 from .phase_timing_shadow import (
     PhaseTimingFit,
     PhaseTimingShadowConfig,
@@ -47,6 +52,9 @@ __all__ = [
     "Model2PredictiveEvidence",
     "Model2AssociationConfig",
     "Model2AssociationDecision",
+    "Model2AutomaticBirthTracker",
+    "Model2BirthConfig",
+    "Model2BirthDecision",
     "Model2CompetitionDecision",
     "Model2CompetitiveAssociation",
     "Model2SingleTrackAssociationArm",
