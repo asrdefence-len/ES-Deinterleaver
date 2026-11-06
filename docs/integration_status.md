@@ -322,3 +322,25 @@ may differ even though the E46 measurement inputs are identical.
 PRI input statistics and pulse coverage together. Previous two-emitter results
 remain untouched. Do not compare against legacy grouping as a success target;
 continue investigation of this isolated, intended path one change at a time.
+
+## Separate raw-PDW HMM experiment: Model 2 timing ablation
+
+The raw-PDW HMM work is a separate experimental path and does not replace or
+validate the supported blob pipeline above. Model 2 adds three learned E46
+pulse-width states to the Frequency + AOA model. Its first held-out association
+test now compares the same trained one-track model on the same mixed RF-plausible
+candidate stream with phase timing support off and on.
+
+The Config 101 development replay contains 5,012 held-out E46 candidates and
+5,212 distractors. Frequency + AOA + PW alone accepts 4,961 E46 pulses and zero
+distractors. Bounded positive-only timing support rescues nine more E46 pulses
+without promoting a distractor: recall changes from 98.98% to 99.16% and
+precision remains 100%. Truth is used only for the controlled seed and
+post-decision evaluation; both arms are truth-blind and candidate selection is
+RF-only. The result is promising but easy because the best distractor remains
+far below threshold. It is not multi-emitter acceptance.
+
+The method, exact run commands, provenance and limitations are in
+[Model 2 timing association ablation](model2_timing_association.md). The next
+single investigation is a genuinely ambiguous held-out emitter/candidate case,
+without retuning the timing weight, evidence model or candidate envelope.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 from pathlib import Path
+import platform
 import subprocess
 
 
@@ -37,5 +38,6 @@ def run_provenance(dataset: str | Path) -> dict:
             "branch": git("branch", "--show-current"),
             "dirty": bool(git("status", "--porcelain")),
         },
+        "python": platform.python_version(),
         "packages": packages,
     }

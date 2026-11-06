@@ -63,6 +63,14 @@ class HMMModel2Update(HMMModel1Update):
     model1_log_evidence: float
 
 
+@dataclass(frozen=True)
+class Model2PredictiveEvidence:
+    rf_log_evidence: float
+    aoa_log_evidence: float
+    pulse_width_log_evidence: float
+    total_log_evidence: float
+
+
 class HMMEmitterModel2(HMMEmitterModel1):
     """Model 1 state filter extended by a pulse-width HMM."""
 
@@ -208,6 +216,72 @@ class HMMEmitterModel2(HMMEmitterModel1):
             pulse_width_log_evidence=pulse_width_log_evidence,
             pulse_width_state_created=pulse_width_state_created,
             model1_log_evidence=model1_update.total_log_evidence,
+        )
+
+    def predictive_evidence(self, pdw: PDW) -> Model2PredictiveEvidence:
+        """Score a candidate without changing state or creating new modes."""
+        if pdw.frequency_hz <= 0.0 or pdw.pulse_width_s <= 0.0:
+            raise ValueError("PDW frequency and pulse width must be positive")
+        if not self._rf_states or not self._pulse_width_states:
+            raise RuntimeError("Model 2 must be trained before predictive scoring")
+        if self._last_toa_s is not None and pdw.toa_s < self._last_toa_s:
+            raise ValueError("candidate TOA precedes the last accepted pulse")
+
+        rf_transition = (
+            self._transition_counts
+            / self._transition_counts.sum(axis=1, keepdims=True)
+        )
+        rf_predicted = self._rf_posterior @ rf_transition
+        rf_log_emission = np.asarray([
+            _normal_logpdf(
+                pdw.frequency_hz - state.mean_hz,
+                max(state.variance_hz2, self.config.rf_sigma_floor_hz**2),
+            )
+            for state in self._rf_states
+        ])
+        rf_log_evidence = _logsumexp(
+            np.log(np.maximum(rf_predicted, 1e-300)) + rf_log_emission
+        )
+
+        elapsed_s = (
+            0.0 if self._last_toa_s is None else pdw.toa_s - self._last_toa_s
+        )
+        predicted_aoa_variance = (
+            float(self._aoa_variance_deg2 or 0.0)
+            + self.config.aoa_process_variance_deg2_per_s * elapsed_s
+        )
+        aoa_innovation = (
+            pdw.aoa_deg - float(self._aoa_mean_deg) + 180.0
+        ) % 360.0 - 180.0
+        aoa_log_evidence = _normal_logpdf(
+            aoa_innovation,
+            predicted_aoa_variance
+            + self.config.aoa_measurement_sigma_deg**2,
+        )
+
+        pw_transition = (
+            self._pulse_width_transition_counts
+            / self._pulse_width_transition_counts.sum(axis=1, keepdims=True)
+        )
+        pw_predicted = self._pulse_width_posterior @ pw_transition
+        log_width = math.log(pdw.pulse_width_s)
+        floor_variance = self.model2_config.pulse_width_log_sigma_floor**2
+        pw_log_emission = np.asarray([
+            _normal_logpdf(
+                log_width - state.log_mean,
+                max(state.log_variance, floor_variance),
+            )
+            for state in self._pulse_width_states
+        ])
+        pulse_width_log_evidence = _logsumexp(
+            np.log(np.maximum(pw_predicted, 1e-300)) + pw_log_emission
+        )
+        total = rf_log_evidence + aoa_log_evidence + pulse_width_log_evidence
+        return Model2PredictiveEvidence(
+            rf_log_evidence=rf_log_evidence,
+            aoa_log_evidence=aoa_log_evidence,
+            pulse_width_log_evidence=pulse_width_log_evidence,
+            total_log_evidence=total,
         )
 
     def snapshot(self) -> dict:

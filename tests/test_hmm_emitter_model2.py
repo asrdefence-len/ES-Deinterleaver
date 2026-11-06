@@ -125,3 +125,31 @@ def test_model2_ignores_amplitude():
         right_update = right.process(pdw(**common, amplitude_db=-150.0))
         assert left_update == right_update
     assert left.snapshot() == right.snapshot()
+
+
+def test_predictive_evidence_scores_without_mutating_trained_model():
+    tracker = HMMEmitterModel2()
+    for index in range(120):
+        tracker.process(pdw(
+            index,
+            index * 10,
+            (1000, 1200, 1400)[index % 3],
+            (0.10, 0.27, 0.43)[index % 3],
+            aoa_deg=32.0,
+        ))
+
+    before = tracker.snapshot()
+    expected = tracker.predictive_evidence(
+        pdw(200, 1200, 1000, 0.10, aoa_deg=32.0)
+    )
+    wrong = tracker.predictive_evidence(
+        pdw(201, 1200, 1040, 0.20, aoa_deg=40.0)
+    )
+
+    assert tracker.snapshot() == before
+    assert expected.total_log_evidence > wrong.total_log_evidence
+    assert expected.total_log_evidence == pytest.approx(
+        expected.rf_log_evidence
+        + expected.aoa_log_evidence
+        + expected.pulse_width_log_evidence
+    )

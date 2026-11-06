@@ -10,8 +10,16 @@ from .hmm_emitter_model2 import (
     HMMEmitterModel2,
     HMMModel2Config,
     HMMModel2Update,
+    Model2PredictiveEvidence,
 )
 from .model import PDW, AssociationDecision, TrackSnapshot
+from .model2_association import (
+    Model2AssociationConfig,
+    Model2AssociationDecision,
+    Model2SingleTrackAssociationArm,
+    TimingSupport,
+    positive_phase_timing_support,
+)
 from .phase_timing_shadow import (
     PhaseTimingFit,
     PhaseTimingShadowConfig,
@@ -31,12 +39,18 @@ __all__ = [
     "HMMModel1Update",
     "HMMModel2Config",
     "HMMModel2Update",
+    "Model2PredictiveEvidence",
+    "Model2AssociationConfig",
+    "Model2AssociationDecision",
+    "Model2SingleTrackAssociationArm",
     "PDW",
     "PhaseTimingFit",
     "PhaseTimingShadowConfig",
     "SequentialPDWTracker",
     "TrackSnapshot",
     "TrackerConfig",
+    "TimingSupport",
     "analyze_phase_timing_shadow",
     "fit_phase_timing_shadow",
+    "positive_phase_timing_support",
 ]
