@@ -344,3 +344,24 @@ The method, exact run commands, provenance and limitations are in
 [Model 2 timing association ablation](model2_timing_association.md). The next
 single investigation is a genuinely ambiguous held-out emitter/candidate case,
 without retuning the timing weight, evidence model or candidate envelope.
+
+## Separate raw-PDW HMM experiment: two-emitter competition
+
+The next raw-PDW step freezes both Model 2 filters, their independently
+calibrated thresholds and the timing policy, then changes only the decision
+topology: E46, E38 and neither compete for one mutually exclusive update per
+pulse. Controlled truth selects each training seed but is unavailable to both
+competition arms. A union RF envelope performs candidate pruning without AOA,
+PW, timing or truth.
+
+The Config 101 development replay covers 332,166 chronological held-out PDWs;
+113,363 enter both filters. Timing off retains 4,665/4,713 E46 pulses and
+4,816/4,882 E38 pulses. Timing on rescues eight E46 and fifteen E38 pulses, for
+4,673 and 4,831 retained respectively. Both arms have zero E46/E38 cross-
+assignments and zero accepted background pulses. This is controlled competition
+between seeded filters, not automatic multi-emitter tracking acceptance.
+
+The exact boundary, commands, provenance and limitations are recorded in
+[Model 2 controlled two-emitter competition](model2_two_emitter_competition.md).
+The next single component is track initiation/birth from the unlabelled stream;
+the evidence, timing and competition settings should remain frozen.

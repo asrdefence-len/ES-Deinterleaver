@@ -94,3 +94,18 @@ The plot keeps AOA covariance, RF uncertainty, PW observations/states, the
 zero-feedback timing shadow and incremental PW predictive evidence visible.
 Small covariance or state entropy does not by itself establish accuracy or
 association performance.
+
+## Association milestones
+
+The complete 12,530-pulse E46 replay learns eight RF states, three PW states at
+approximately 0.100, 0.271 and 0.428 µs, and an AOA estimate of 32.238 degrees
+with 0.149-degree posterior sigma. That component result is followed by two
+held-out association experiments without changing the Model 2 state equations:
+
+- [E46 timing association ablation](model2_timing_association.md) compares
+  Frequency + AOA + PW against the same evidence plus bounded timing support.
+- [E46/E38 two-emitter competition](model2_two_emitter_competition.md) allows
+  two seeded filters and neither to compete for one update per pulse.
+
+These are controlled seeded experiments. They do not yet supply automatic
+track birth, unknown-emitter discovery or lifecycle management.

@@ -20,6 +20,11 @@ from .model2_association import (
     TimingSupport,
     positive_phase_timing_support,
 )
+from .model2_competition import (
+    CompetitiveTrackScore,
+    Model2CompetitionDecision,
+    Model2CompetitiveAssociation,
+)
 from .phase_timing_shadow import (
     PhaseTimingFit,
     PhaseTimingShadowConfig,
@@ -42,7 +47,10 @@ __all__ = [
     "Model2PredictiveEvidence",
     "Model2AssociationConfig",
     "Model2AssociationDecision",
+    "Model2CompetitionDecision",
+    "Model2CompetitiveAssociation",
     "Model2SingleTrackAssociationArm",
+    "CompetitiveTrackScore",
     "PDW",
     "PhaseTimingFit",
     "PhaseTimingShadowConfig",
