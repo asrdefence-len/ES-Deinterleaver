@@ -153,3 +153,9 @@ def test_predictive_evidence_scores_without_mutating_trained_model():
         + expected.aoa_log_evidence
         + expected.pulse_width_log_evidence
     )
+    assert tracker.predictive_aoa_log_evidence(
+        pdw(202, 1200, 1000, 0.10, aoa_deg=32.0)
+    ) == pytest.approx(expected.aoa_log_evidence)
+    assert tracker.predictive_rf_pw_log_evidence_upper_bound() >= (
+        expected.rf_log_evidence + expected.pulse_width_log_evidence
+    )

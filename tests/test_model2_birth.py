@@ -95,3 +95,28 @@ def test_external_truth_cannot_change_birth_or_assignment_decisions():
                        in zip(sequence, relabelled_truth)]
     assert left_decisions == right_decisions
     assert left.snapshots() == right.snapshots()
+
+
+def test_safe_confirmed_pruning_preserves_every_assignment_decision():
+    common = dict(
+        confirmation_pulses=10,
+        threshold_calibration_window=5,
+        enable_timing_after_confirmation=False,
+    )
+    exact = Model2AutomaticBirthTracker(Model2BirthConfig(
+        **common, enable_safe_confirmed_pruning=False,
+    ))
+    pruned = Model2AutomaticBirthTracker(Model2BirthConfig(
+        **common, enable_safe_confirmed_pruning=True,
+    ))
+    sequence = [pdw(index, "left" if index % 2 == 0 else "right")
+                for index in range(100)]
+    exact_decisions = [exact.process(item) for item in sequence]
+    pruned_decisions = [pruned.process(item) for item in sequence]
+    assert [item.track_id for item in exact_decisions] == [
+        item.track_id for item in pruned_decisions
+    ]
+    assert [item.outcome for item in exact_decisions] == [
+        item.outcome for item in pruned_decisions
+    ]
+    assert exact.snapshots() == pruned.snapshots()

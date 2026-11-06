@@ -243,21 +243,7 @@ class HMMEmitterModel2(HMMEmitterModel1):
             np.log(np.maximum(rf_predicted, 1e-300)) + rf_log_emission
         )
 
-        elapsed_s = (
-            0.0 if self._last_toa_s is None else pdw.toa_s - self._last_toa_s
-        )
-        predicted_aoa_variance = (
-            float(self._aoa_variance_deg2 or 0.0)
-            + self.config.aoa_process_variance_deg2_per_s * elapsed_s
-        )
-        aoa_innovation = (
-            pdw.aoa_deg - float(self._aoa_mean_deg) + 180.0
-        ) % 360.0 - 180.0
-        aoa_log_evidence = _normal_logpdf(
-            aoa_innovation,
-            predicted_aoa_variance
-            + self.config.aoa_measurement_sigma_deg**2,
-        )
+        aoa_log_evidence = self.predictive_aoa_log_evidence(pdw)
 
         pw_transition = (
             self._pulse_width_transition_counts
@@ -283,6 +269,44 @@ class HMMEmitterModel2(HMMEmitterModel1):
             pulse_width_log_evidence=pulse_width_log_evidence,
             total_log_evidence=total,
         )
+
+    def predictive_aoa_log_evidence(self, pdw: PDW) -> float:
+        """Return the non-mutating continuous AOA predictive log density."""
+        if self._aoa_mean_deg is None:
+            raise RuntimeError("Model 2 must be trained before predictive scoring")
+        if self._last_toa_s is not None and pdw.toa_s < self._last_toa_s:
+            raise ValueError("candidate TOA precedes the last accepted pulse")
+        elapsed_s = (
+            0.0 if self._last_toa_s is None else pdw.toa_s - self._last_toa_s
+        )
+        predicted_aoa_variance = (
+            float(self._aoa_variance_deg2 or 0.0)
+            + self.config.aoa_process_variance_deg2_per_s * elapsed_s
+        )
+        aoa_innovation = (
+            pdw.aoa_deg - float(self._aoa_mean_deg) + 180.0
+        ) % 360.0 - 180.0
+        return _normal_logpdf(
+            aoa_innovation,
+            predicted_aoa_variance
+            + self.config.aoa_measurement_sigma_deg**2,
+        )
+
+    def predictive_rf_pw_log_evidence_upper_bound(self) -> float:
+        """Bound the best possible RF+PW density under the current states."""
+        if not self._rf_states or not self._pulse_width_states:
+            raise RuntimeError("Model 2 must be trained before predictive scoring")
+        rf_floor = self.config.rf_sigma_floor_hz**2
+        pw_floor = self.model2_config.pulse_width_log_sigma_floor**2
+        rf_upper = max(
+            _normal_logpdf(0.0, max(state.variance_hz2, rf_floor))
+            for state in self._rf_states
+        )
+        pw_upper = max(
+            _normal_logpdf(0.0, max(state.log_variance, pw_floor))
+            for state in self._pulse_width_states
+        )
+        return rf_upper + pw_upper
 
     def snapshot(self) -> dict:
         snapshot = super().snapshot()

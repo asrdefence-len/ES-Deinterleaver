@@ -115,3 +115,9 @@ removes the pre-created HMMs. Two tentative filters are initiated and confirmed
 from an interleaved, tracker-unlabelled E46/E38 stream. Background emitters are
 still excluded, so this validates the initiation mechanism rather than full-
 scene discovery or lifecycle management.
+
+The following [frozen full-scene birth stress](model2_full_scene_birth.md)
+passes all 844,999 Config 101 PDWs to the same manager. It fails: the eight-track
+capacity is consumed by pulse 9, and neither E46 nor E38 is ever assigned. This
+locates the next problem in tentative-birth capacity management, not in another
+incremental change to the mature Model 2 observation equations.

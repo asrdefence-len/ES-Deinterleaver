@@ -387,3 +387,24 @@ The exact staged model, commands, provenance, online-timing disagreement and
 limitations are in [Model 2 automatic birth](model2_automatic_birth.md). The
 next single change is adding background PDWs while holding birth, evidence,
 threshold and timing settings fixed.
+
+## Separate raw-PDW HMM experiment: frozen full-scene birth stress
+
+The matched full-scene replay has now added all 844,999 chronological Config
+101 PDWs without changing the Model 2 evidence, timing, initiation thresholds,
+duplicate suppression or eight-track limit. Truth is unavailable to the
+tracker and is used only after decisions for evaluation.
+
+This replay fails target retention. The first nine input pulses consume all
+eight track slots, before any tentative track can reach the 256-pulse
+confirmation requirement. Although all eight tracks later confirm and the
+tracker assigns 507,338 PDWs (60.04% overall coverage), it assigns zero of
+12,530 E46 pulses and zero of 12,211 E38 pulses. Capacity rejects 323,399 PDWs,
+and two retained tracks have only 80.7% and 71.1% evaluation purity. The overall
+coverage must not be reported as tracking acceptance.
+
+The exact boundary, commands, result and limitations are recorded in
+[Model 2 frozen full-scene birth stress](model2_full_scene_birth.md). The next
+single investigation is bounded tentative-hypothesis admission and eviction:
+unconfirmed one-pulse births must earn a permanent slot, while Model 2 evidence,
+timing and confirmed-track competition remain frozen.

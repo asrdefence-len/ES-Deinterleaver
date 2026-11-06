@@ -29,6 +29,7 @@ class Model2BirthConfig:
     calibration_target_recall: float = 0.99
     max_tracks: int = 8
     enable_timing_after_confirmation: bool = True
+    enable_safe_confirmed_pruning: bool = False
 
     def __post_init__(self) -> None:
         if self.tentative_aoa_gate_deg <= 0.0:
@@ -58,6 +59,7 @@ class _InitiatedTrack:
     predictive_scores: list[float] = field(default_factory=list)
     toa_history_s: list[float] = field(default_factory=list)
     active_history: list[float] = field(default_factory=list)
+    aoa_mean_deg: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,7 @@ class Model2BirthDecision:
     confirmed_margins: dict[str, float]
     timing_boosts: dict[str, float]
     tentative_aoa_errors_deg: dict[str, float]
+    confirmed_score_upper_bound_pruned: tuple[str, ...]
     rejection_reason: str | None
 
 
@@ -102,8 +105,7 @@ class Model2AutomaticBirthTracker:
         return len(self._tracks)
 
     def _aoa_error(self, track: _InitiatedTrack, pdw: PDW) -> float:
-        mean = track.model.snapshot()["aoa"]["mean_deg"]
-        return abs(_angular_error_deg(pdw.aoa_deg, float(mean)))
+        return abs(_angular_error_deg(pdw.aoa_deg, track.aoa_mean_deg))
 
     def _fit_timing(self, track: _InitiatedTrack) -> PhaseTimingFit | None:
         toa_s = np.asarray(track.toa_history_s, dtype=float)
@@ -134,6 +136,7 @@ class Model2AutomaticBirthTracker:
             pulse_count=1,
             toa_history_s=[pdw.toa_s],
             active_history=[update.shadow_active_posterior],
+            aoa_mean_deg=update.aoa_mean_deg,
         )
         self._next_track_number += 1
         self._tracks.append(track)
@@ -145,6 +148,7 @@ class Model2AutomaticBirthTracker:
         track.predictive_scores.append(predictive)
         track.toa_history_s.append(pdw.toa_s)
         track.active_history.append(update.shadow_active_posterior)
+        track.aoa_mean_deg = update.aoa_mean_deg
         track.last_toa_s = pdw.toa_s
         track.pulse_count += 1
         just_confirmed = False
@@ -169,12 +173,12 @@ class Model2AutomaticBirthTracker:
     def process(self, pdw: PDW) -> Model2BirthDecision:
         confirmed_margins = {}
         timing_boosts = {}
+        upper_bound_pruned = []
         for track in self._tracks:
             if not track.confirmed:
                 continue
             if track.threshold is None:
                 raise RuntimeError("confirmed track is missing its threshold")
-            evidence = track.model.predictive_evidence(pdw).total_log_evidence
             boost = 0.0
             if (self.birth_config.enable_timing_after_confirmation
                     and track.timing_fit is not None):
@@ -184,8 +188,20 @@ class Model2AutomaticBirthTracker:
                     track.timing_fit,
                     self.association_config,
                 ).applied_boost
-            confirmed_margins[track.track_id] = evidence - track.threshold + boost
             timing_boosts[track.track_id] = boost
+            if self.birth_config.enable_safe_confirmed_pruning:
+                upper_margin = (
+                    track.model.predictive_aoa_log_evidence(pdw)
+                    + track.model.predictive_rf_pw_log_evidence_upper_bound()
+                    - track.threshold
+                    + boost
+                )
+                if upper_margin < 0.0:
+                    confirmed_margins[track.track_id] = upper_margin
+                    upper_bound_pruned.append(track.track_id)
+                    continue
+            evidence = track.model.predictive_evidence(pdw).total_log_evidence
+            confirmed_margins[track.track_id] = evidence - track.threshold + boost
 
         if confirmed_margins:
             winner_id = max(confirmed_margins, key=confirmed_margins.get)
@@ -195,7 +211,8 @@ class Model2AutomaticBirthTracker:
                 self._update_track(track, pdw)
                 return Model2BirthDecision(
                     pdw.pdw_id, pdw.toa_s, "confirmed_update", track.track_id,
-                    True, confirmed_margins, timing_boosts, {}, None,
+                    True, confirmed_margins, timing_boosts, {},
+                    tuple(upper_bound_pruned), None,
                 )
 
         tentative_errors = {
@@ -220,6 +237,7 @@ class Model2AutomaticBirthTracker:
                 confirmed_margins,
                 timing_boosts,
                 tentative_errors,
+                tuple(upper_bound_pruned),
                 None,
             )
 
@@ -232,19 +250,22 @@ class Model2AutomaticBirthTracker:
             return Model2BirthDecision(
                 pdw.pdw_id, pdw.toa_s, "rejected", None, False,
                 confirmed_margins, timing_boosts, tentative_errors,
+                tuple(upper_bound_pruned),
                 "confirmed_aoa_birth_suppression",
             )
         if len(self._tracks) >= self.birth_config.max_tracks:
             return Model2BirthDecision(
                 pdw.pdw_id, pdw.toa_s, "rejected", None, False,
                 confirmed_margins, timing_boosts, tentative_errors,
+                tuple(upper_bound_pruned),
                 "track_capacity",
             )
 
         track = self._create_track(pdw)
         return Model2BirthDecision(
             pdw.pdw_id, pdw.toa_s, "birth", track.track_id, False,
-            confirmed_margins, timing_boosts, tentative_errors, None,
+            confirmed_margins, timing_boosts, tentative_errors,
+            tuple(upper_bound_pruned), None,
         )
 
     def snapshots(self) -> list[dict]:

@@ -76,3 +76,9 @@ AOAs are separated. It does not test background rejection, full-scene track
 capacity, co-azimuth emitters, track deletion or reacquisition. The next matched
 experiment should add background PDWs without changing birth, HMM, threshold or
 timing settings.
+
+That matched experiment is now recorded in
+[Model 2 frozen full-scene birth stress](model2_full_scene_birth.md). It holds
+those settings fixed and fails because eight one-pulse births consume the entire
+track capacity by input pulse 9, before any confirmation. The controlled result
+above remains valid for its stated mixture but is not full-scene acceptance.
