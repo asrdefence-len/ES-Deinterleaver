@@ -128,3 +128,12 @@ evidence. E46/E38 coverage recovers, but global weighted identity purity is only
 62.98%, including one confirmed track containing 25 truth emitters. The next
 isolated component is therefore confirmation validation; lifecycle is added
 only after a mixed candidate can no longer confirm as a permissive catch-all.
+
+[Staged birth validation](model2_staged_birth_validation.md) now separates a
+small AOA seed, tentative RF/PW discrimination and frozen held-out confirmation.
+On the full scene it raises evaluation-weighted identity purity from 62.98% to
+95.03%, preserves E46 as one 99.94%-pure identity with 99.61% retention, and
+reduces the worst track from 25 truth emitters to four. Seven confirmed tracks
+remain below 90% purity and some pure candidates remain tentative. This is an
+improved birth component, not complete tracking acceptance; lifecycle remains
+the next isolated change.

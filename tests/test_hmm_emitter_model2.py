@@ -159,3 +159,18 @@ def test_predictive_evidence_scores_without_mutating_trained_model():
     assert tracker.predictive_rf_pw_log_evidence_upper_bound() >= (
         expected.rf_log_evidence + expected.pulse_width_log_evidence
     )
+
+
+def test_feature_novelty_reports_known_and_jointly_unseen_measurements():
+    tracker = HMMEmitterModel2()
+    tracker.process(pdw(0, 1000, 1000, 0.10, aoa_deg=32.0))
+    known = tracker.feature_novelty(
+        pdw(1, 1005, 1010, 0.102, aoa_deg=32.0)
+    )
+    unseen = tracker.feature_novelty(
+        pdw(2, 2000, 1400, 0.50, aoa_deg=32.0)
+    )
+    assert known.rf_known
+    assert known.pulse_width_known
+    assert not unseen.rf_known
+    assert not unseen.pulse_width_known

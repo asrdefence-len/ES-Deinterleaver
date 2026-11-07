@@ -27,6 +27,9 @@ def plot_full_scene(result: dict, output: Path) -> None:
     max_tracks = result.get("config", {}).get("birth", {}).get(
         "max_tracks", len(tracks),
     )
+    staged_validation = result.get("config", {}).get("birth", {}).get(
+        "enable_staged_birth_validation", False,
+    )
     track_ids = [row["track_id"] for row in tracks]
     track_positions = {track_id: index for index, track_id in enumerate(track_ids)}
     for event_name, marker, colour in (
@@ -110,13 +113,17 @@ def plot_full_scene(result: dict, output: Path) -> None:
             reverse=True,
         )
         positions = np.arange(1, len(ranked) + 1)
-        confirmed = np.asarray([
-            row.get("status") == "confirmed" for row in ranked
-        ])
         counts = np.asarray([
             row["assigned_count_evaluation"] for row in ranked
         ])
-        colours = np.where(confirmed, "tab:green", "tab:orange")
+        colours = [
+            (
+                "tab:green" if row.get("status") == "confirmed"
+                else "tab:red" if row.get("status") == "rejected_birth"
+                else "tab:orange"
+            )
+            for row in ranked
+        ]
         composition_axis.bar(positions, counts, color=colours, width=1.0)
         composition_axis.set_yscale("log")
         composition_axis.set(
@@ -143,6 +150,7 @@ def plot_full_scene(result: dict, output: Path) -> None:
             handles=(
                 Patch(color="tab:green", label="Confirmed"),
                 Patch(color="tab:orange", label="Tentative"),
+                Patch(color="tab:red", label="Rejected birth"),
                 Line2D(
                     [0], [0], marker="o", color="none",
                     markerfacecolor="black", alpha=0.45,
@@ -195,11 +203,14 @@ def plot_full_scene(result: dict, output: Path) -> None:
     x = np.arange(len(targets))
     target_axis.bar(
         x - width / 2, controlled, width, color="tab:green",
-        label="Controlled E46/E38 mixture",
+        label="Prior controlled E46/E38 baseline",
     )
     target_axis.bar(
         x + width / 2, full_scene, width, color="tab:red",
-        label="Frozen full scene",
+        label=(
+            "Staged-validation full scene"
+            if staged_validation else "Frozen full scene"
+        ),
     )
     for offset, values_to_label in (
         (-width / 2, controlled), (width / 2, full_scene),
@@ -220,7 +231,12 @@ def plot_full_scene(result: dict, output: Path) -> None:
     for axis in axes.flat:
         axis.grid(alpha=0.18)
     figure.suptitle(
-        "HMM Model 2 — frozen full-scene automatic-birth stress replay\n"
+        (
+            "HMM Model 2 — staged birth-validation full-scene replay\n"
+            if staged_validation else
+            "HMM Model 2 — frozen full-scene automatic-birth stress replay\n"
+        )
+        +
         f"{result['input_boundary']['source_pdws']:,} unfiltered PDWs; "
         f"{max_tracks}-track capacity; E46/E38 shown as evaluation targets",
         fontsize=14,

@@ -429,3 +429,32 @@ The exact command, result and limitations are in
 The next single change is confirmation validation using held-out Frequency +
 AOA + PW evidence. Lifecycle expiry, retirement and reacquisition follow as a
 separate stage after confirmation is trustworthy.
+
+## Separate raw-PDW HMM experiment: staged birth validation
+
+Tentative birth now uses an eight-pulse AOA seed, early RF/PW discrimination,
+a frozen 128-pulse candidate model and a rolling 128-pulse held-out validation
+block. RF, AOA and PW each require coherent held-out evidence. Inconclusive
+blocks keep the same frozen candidate rather than creating repeated identities;
+pathological training references reject birth, and pathological held-out
+quantiles are replaced by a robust threshold. Mature HMM equations, timing and
+confirmed competition remain frozen.
+
+The full Config 101 development replay creates 44 historical candidates: 32
+confirmed, 11 tentative and one rejected. Assignment coverage is 96.97%.
+Weighted identity purity improves from the matched high-capacity reference's
+62.98% to 95.03%; distinct dominant emitters increase from 35 to 42; and the
+maximum truth emitters in one track falls from 25 to four. Seven tracks remain
+below 90% purity, so performance acceptance remains open.
+
+E46 remains one identity with 99.61% primary retention and 99.94% purity. E38
+has 99.43% total coverage; its primary retains 98.73% at 99.78% purity. The
+eleven previously strong identities survive, although E33 primary retention
+regresses from 97.01% to 94.23%. An AOA-gate-only validation variant reduced
+weighted purity to 94.69% without resolving a large pure tentative track and
+was removed.
+
+The exact design, command and limitations are in
+[Model 2 staged birth validation](model2_staged_birth_validation.md). The next
+single component is lifecycle management; HMM, timing and validation settings
+remain frozen.

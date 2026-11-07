@@ -71,6 +71,16 @@ class Model2PredictiveEvidence:
     total_log_evidence: float
 
 
+@dataclass(frozen=True)
+class Model2FeatureNovelty:
+    rf_distance_hz: float
+    rf_normalized_distance: float
+    rf_known: bool
+    pulse_width_log_distance: float
+    pulse_width_normalized_distance: float
+    pulse_width_known: bool
+
+
 class HMMEmitterModel2(HMMEmitterModel1):
     """Model 1 state filter extended by a pulse-width HMM."""
 
@@ -307,6 +317,29 @@ class HMMEmitterModel2(HMMEmitterModel1):
             for state in self._pulse_width_states
         )
         return rf_upper + pw_upper
+
+    def feature_novelty(self, pdw: PDW) -> Model2FeatureNovelty:
+        """Measure RF/PW distance to learned states without changing them."""
+        if not self._rf_states or not self._pulse_width_states:
+            raise RuntimeError("Model 2 must be trained before novelty scoring")
+        rf_distance = min(
+            abs(pdw.frequency_hz - state.mean_hz) for state in self._rf_states
+        )
+        log_width = math.log(pdw.pulse_width_s)
+        pw_distance = min(
+            abs(log_width - state.log_mean)
+            for state in self._pulse_width_states
+        )
+        rf_gate = self.config.rf_new_state_gate_hz
+        pw_gate = self.model2_config.pulse_width_new_state_gate_log
+        return Model2FeatureNovelty(
+            rf_distance_hz=rf_distance,
+            rf_normalized_distance=rf_distance / rf_gate,
+            rf_known=rf_distance <= rf_gate,
+            pulse_width_log_distance=pw_distance,
+            pulse_width_normalized_distance=pw_distance / pw_gate,
+            pulse_width_known=pw_distance <= pw_gate,
+        )
 
     def snapshot(self) -> dict:
         snapshot = super().snapshot()

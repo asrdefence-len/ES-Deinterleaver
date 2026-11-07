@@ -63,6 +63,11 @@ tentative expiry, confirmed coasting/retirement, released capacity and explicit
 reacquisition. Confirmation and lifecycle must not be tuned together against
 the same target scores.
 
+That next component is now recorded in
+[Model 2 staged birth validation](model2_staged_birth_validation.md). It removes
+the giant catch-all and raises weighted identity purity to 95.03% while keeping
+E46 on one identity. It does not yet add lifecycle.
+
 The repository regression at this diagnostic milestone is **284 passed**.
 Passing tests verifies implementation consistency; it does not override the
 failed full-scene identity-purity result.

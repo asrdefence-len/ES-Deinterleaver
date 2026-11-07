@@ -38,6 +38,13 @@ def main() -> None:
             "near the end of the recording"
         ),
     )
+    parser.add_argument(
+        "--staged-birth-validation", action="store_true",
+        help=(
+            "Enable RF/PW tentative discrimination and frozen held-out "
+            "confirmation validation"
+        ),
+    )
     args = parser.parse_args()
     if args.progress_every < 1:
         raise ValueError("progress interval must be positive")
@@ -50,6 +57,7 @@ def main() -> None:
         max_tracks=args.max_tracks,
         enable_timing_after_confirmation=True,
         enable_safe_confirmed_pruning=True,
+        enable_staged_birth_validation=args.staged_birth_validation,
     )
     tracker = Model2AutomaticBirthTracker(birth_config)
     truth_counts: Counter[str] = Counter()
@@ -88,7 +96,9 @@ def main() -> None:
                 )[truth] += 1
                 if truth in target_track_counts:
                     target_track_counts[truth][decision.track_id] += 1
-            if decision.outcome in ("birth", "confirmed"):
+            if decision.outcome in (
+                "birth", "confirmed", "validation_rejected",
+            ):
                 lifecycle_events.append({
                     "pdw_id": pdw.pdw_id,
                     "toa_s": pdw.toa_s,
@@ -106,7 +116,9 @@ def main() -> None:
 
             log_diagnostic = (
                 truth in TARGETS
-                or decision.outcome in ("birth", "confirmed")
+                or decision.outcome in (
+                    "birth", "confirmed", "validation_rejected",
+                )
             )
             if diagnostic_handle and log_diagnostic:
                 diagnostic_handle.write(json.dumps({
@@ -154,6 +166,7 @@ def main() -> None:
                 <= args.end_activity_window_s
             ),
             "threshold": snapshot["threshold"],
+            "birth_validation": snapshot["birth_validation"],
             "timing_fit": snapshot["timing_fit"],
             "rf_state_count": len(snapshot["model"]["rf_states"]),
             "pulse_width_state_count": len(
@@ -220,6 +233,10 @@ def main() -> None:
 
     result = {
         "status": (
+            "staged Model 2 birth-validation full-scene replay; no truth input "
+            "selection and no lifecycle/reacquisition"
+            if args.staged_birth_validation
+            else
             "frozen Model 2 automatic-birth full-scene stress replay; no truth "
             "input selection and no lifecycle/reacquisition"
         ),
@@ -243,6 +260,10 @@ def main() -> None:
             "tentative_tracks": sum(
                 row["status"] == "tentative" for row in snapshots
             ),
+            "rejected_birth_candidates": sum(
+                row["status"] == "rejected_birth" for row in snapshots
+            ),
+            "active_track_count": tracker.track_count,
             "capacity_first_reached": capacity_first_reached,
             "assigned_pdws": assigned_pdws,
             "assignment_coverage": assigned_pdws / processed,
@@ -263,8 +284,8 @@ def main() -> None:
         "identity_evaluation": identity_evaluation,
         "controlled_reference": {
             "description": (
-                "same birth/HMM/timing settings on the prior background-free "
-                "E46/E38 mixture"
+                "prior background-free E46/E38 baseline; staged validation "
+                "was not enabled in that saved comparison"
             ),
             "E46_recall": 0.9903,
             "E38_recall": 0.9726,
@@ -280,6 +301,12 @@ def main() -> None:
         "final_snapshots": snapshots,
     }
     result["provenance"]["processing_path"] = (
+        "all chronological Config 101 PDWs -> truth-blind AOA seed -> "
+        "tentative RF/PW discrimination -> frozen held-out Frequency/AOA/PW "
+        "birth validation -> Model 2 association with bounded timing -> "
+        "truth-only evaluation"
+        if args.staged_birth_validation
+        else
         "all chronological Config 101 PDWs -> truth-blind staged HMM birth -> "
         "frozen Model 2 association with bounded timing -> truth-only evaluation"
     )
@@ -309,7 +336,8 @@ def main() -> None:
     args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
     print(
         f"Full scene: {processed:,} PDWs; {len(snapshots)} tracks "
-        f"({result['tracker']['confirmed_tracks']} confirmed); "
+        f"({result['tracker']['confirmed_tracks']} confirmed, "
+        f"{result['tracker']['rejected_birth_candidates']} rejected births); "
         f"assigned {assigned_pdws:,} ({assigned_pdws / processed:.2%})"
     )
     if capacity_first_reached:
