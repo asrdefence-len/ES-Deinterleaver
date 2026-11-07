@@ -27,6 +27,13 @@ global hypotheses by default and reports the probability mass discarded at
 each update. This is explicit hypothesis pruning, not a hidden association
 rule.
 
+Global hypotheses are stored as a shared-state DAG. Identical conditional
+emitter states share one Model 2 instance; predictive evidence is evaluated
+once per unique state and only the emitter receiving a PDW is copied and
+updated. Pulse-rate exposure is derived exactly from birth and current scene
+time. This is a representation optimization: it adds no blob proposal, hard
+gate or association threshold.
+
 ## Current boundary
 
 This milestone implements probabilistic association, clutter and birth. Track
@@ -65,3 +72,12 @@ contained approximately 234 E46 associations but only 12 E38 associations, so
 it demonstrates posterior feasibility rather than balanced two-emitter
 performance. A longer controlled chronological block and Bayesian lifecycle
 model are required before a full-scene claim.
+
+The 2,000-selected-PDW balanced replay contains 1,067 E46 and 933 E38 pulses.
+The pre-optimization branch-and-clone implementation did not complete within
+150 seconds. The shared-state representation completes in 60.03 seconds,
+retains 0.999999953 represented posterior mass and ends with two unit-existence
+identities. Fractional evaluation purity is 0.999999993 for E38-dominant B39
+and 1.0 for E46-dominant B58. The saved 250-PDW association posterior changes
+by at most 2.3e-16; its existence probabilities and retained mass are exactly
+unchanged.

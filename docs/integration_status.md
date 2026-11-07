@@ -32,17 +32,26 @@ fully Bayesian. The next single investigation is a longer controlled
 chronological block containing substantial support from both emitters, with
 runtime, retained posterior mass, marginal existence and fractional identity
 composition recorded together. The smallest reasonably balanced prefix is
-2,000 selected PDWs (1,067 E46 and 933 E38), but the unchanged implementation
-did not complete that replay within 150 seconds and was stopped without a
-result. The current explicit branch-and-clone representation therefore fails
-the first scalability check. The next single investigation is an equivalent
-factorized or Rao-Blackwellized posterior representation that avoids cloning
-every emitter HMM on every branch; association probabilities and the 250-PDW
-reference must remain unchanged within numerical tolerance. Increasing a
-decision threshold is not an acceptable substitute. After that, replace the
-inherited state-creation gates with posterior mass over occupied and
-unoccupied RF/PW states before Bayesian lifecycle modelling is added. Do not
-describe a full-scene benchmark as accepted before those steps are complete.
+2,000 selected PDWs (1,067 E46 and 933 E38). The original explicit
+branch-and-clone representation did not complete that replay within 150
+seconds and was stopped without a result.
+
+The equivalent shared-state hypothesis DAG now derives rate exposure from
+birth/current time, caches predictive evidence for identical conditional track
+states, and copies/updates only the track receiving the PDW. It adds no blob,
+gate or association threshold. On the 250-PDW reference its association
+posterior differs by at most 2.3e-16, while existence and retained mass are
+identical. The balanced 2,000-PDW replay completes in 60.03 seconds, retains
+0.999999953 represented posterior mass and ends with only B39 and B58 at unit
+existence. Fractional evaluation purity is 0.999999993 for E38-dominant B39
+and 1.0 for E46-dominant B58. The full suite passes 297 tests.
+
+This passes the first controlled scalability check, not full-scene
+acceptance. The next single model change is to replace the inherited RF/PW
+state-creation distance gates with posterior mass over occupied and
+unoccupied waveform states. Bayesian lifecycle modelling follows that change.
+Do not describe a full-scene benchmark as accepted before those steps are
+complete.
 
 ## Active sequential architecture: Model 1 reference and Model 2 PW increment
 

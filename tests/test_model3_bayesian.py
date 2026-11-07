@@ -92,3 +92,17 @@ def test_hypothesis_pruning_is_reported_and_posterior_is_renormalized():
     assert 0.0 < update.retained_posterior_mass <= 1.0
     assert sum(update.association_probabilities.values()) == pytest.approx(1.0)
     assert math.isfinite(sum(update.track_existence_probabilities.values()))
+
+
+def test_shared_state_dag_reuses_likelihoods_and_track_updates():
+    tracker = BayesianModel3Tracker(config())
+    for index in range(12):
+        update = tracker.process(pdw(index))
+    metrics = tracker.summary()["sharing_metrics"]
+    assert metrics["track_mark_evaluations"] < metrics["track_mark_requests"]
+    assert metrics["track_state_updates"] < metrics["track_update_requests"]
+    assert metrics["birth_state_constructions"] == 12
+    assert all(
+        0.0 <= probability <= 1.0
+        for probability in update.track_existence_probabilities.values()
+    )

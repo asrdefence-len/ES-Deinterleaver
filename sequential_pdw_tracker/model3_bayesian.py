@@ -18,8 +18,6 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 import math
 
-import numpy as np
-
 from .hmm_emitter_model2 import HMMEmitterModel2, HMMModel2Config
 from .model import PDW
 
@@ -68,7 +66,7 @@ class BayesianModel3Config:
             raise ValueError("pulse-width support must have positive width")
 
 
-@dataclass
+@dataclass(frozen=True)
 class _BayesianTrack:
     track_id: str
     model: HMMEmitterModel2
@@ -76,11 +74,14 @@ class _BayesianTrack:
     last_assigned_toa_s: float
     pulse_count: int
     rate_shape: float
-    rate_exposure_s: float
+    rate_prior_exposure_s: float
 
-    @property
-    def expected_rate_hz(self) -> float:
-        return self.rate_shape / self.rate_exposure_s
+    def expected_rate_hz(self, scene_toa_s: float) -> float:
+        exposure_s = self.rate_prior_exposure_s + max(
+            scene_toa_s - self.birth_toa_s,
+            0.0,
+        )
+        return self.rate_shape / exposure_s
 
 
 @dataclass
@@ -119,6 +120,13 @@ class BayesianModel3Tracker:
         self.model_config = model_config or HMMModel2Config()
         self._hypotheses = [_GlobalHypothesis()]
         self._last_retained_mass = 1.0
+        self._sharing_metrics = {
+            "track_mark_requests": 0,
+            "track_mark_evaluations": 0,
+            "track_update_requests": 0,
+            "track_state_updates": 0,
+            "birth_state_constructions": 0,
+        }
 
     def _uniform_mark_log_density(self, pdw: PDW) -> float:
         if not self.config.frequency_min_hz <= pdw.frequency_hz <= self.config.frequency_max_hz:
@@ -154,19 +162,11 @@ class BayesianModel3Tracker:
         )
         return rf_log_density + evidence.aoa_log_evidence + pw_log_density
 
-    @staticmethod
-    def _advance_exposure(
-        hypothesis: _GlobalHypothesis,
-        elapsed_s: float,
-    ) -> None:
-        for track in hypothesis.tracks.values():
-            track.rate_exposure_s += elapsed_s
-
     def _event_log_intensities(
         self,
         hypothesis: _GlobalHypothesis,
         pdw: PDW,
-        elapsed_s: float,
+        mark_cache: dict[int, float],
     ) -> dict[str, float]:
         background_log_density = self._uniform_mark_log_density(pdw)
         values = {
@@ -176,9 +176,14 @@ class BayesianModel3Tracker:
             ),
         }
         for track_id, track in hypothesis.tracks.items():
-            predicted_rate = track.rate_shape / (track.rate_exposure_s + elapsed_s)
+            self._sharing_metrics["track_mark_requests"] += 1
+            cache_key = id(track)
+            if cache_key not in mark_cache:
+                mark_cache[cache_key] = self._track_mark_log_density(track, pdw)
+                self._sharing_metrics["track_mark_evaluations"] += 1
+            predicted_rate = track.expected_rate_hz(pdw.toa_s)
             values[f"track:{track_id}"] = (
-                math.log(predicted_rate) + self._track_mark_log_density(track, pdw)
+                math.log(predicted_rate) + mark_cache[cache_key]
             )
         return values
 
@@ -189,7 +194,9 @@ class BayesianModel3Tracker:
     ) -> float:
         total = self.config.clutter_rate_hz + self.config.birth_event_rate_hz
         total += sum(
-            track.rate_shape / (track.rate_exposure_s + elapsed_s)
+            track.expected_rate_hz(
+                (hypothesis.last_scene_toa_s or track.birth_toa_s) + elapsed_s
+            )
             for track in hypothesis.tracks.values()
         )
         return total
@@ -198,41 +205,68 @@ class BayesianModel3Tracker:
         self,
         parent: _GlobalHypothesis,
         pdw: PDW,
-        elapsed_s: float,
         action: str,
         log_weight: float,
+        update_cache: dict[int, _BayesianTrack],
+        birth_track: _BayesianTrack,
     ) -> _GlobalHypothesis:
-        child = deepcopy(parent)
-        child.log_weight = log_weight
-        child.last_scene_toa_s = pdw.toa_s
-        child.last_action = action
-        self._advance_exposure(child, elapsed_s)
+        tracks = parent.tracks
         if action.startswith("track:"):
+            self._sharing_metrics["track_update_requests"] += 1
             track_id = action.split(":", 1)[1]
-            track = child.tracks[track_id]
-            track.model.process(pdw)
-            track.last_assigned_toa_s = pdw.toa_s
-            track.pulse_count += 1
-            track.rate_shape += 1.0
+            track = parent.tracks[track_id]
+            cache_key = id(track)
+            updated = update_cache.get(cache_key)
+            if updated is None:
+                model = deepcopy(track.model)
+                model.process(pdw)
+                updated = _BayesianTrack(
+                    track_id=track.track_id,
+                    model=model,
+                    birth_toa_s=track.birth_toa_s,
+                    last_assigned_toa_s=pdw.toa_s,
+                    pulse_count=track.pulse_count + 1,
+                    rate_shape=track.rate_shape + 1.0,
+                    rate_prior_exposure_s=track.rate_prior_exposure_s,
+                )
+                update_cache[cache_key] = updated
+                self._sharing_metrics["track_state_updates"] += 1
+            tracks = dict(parent.tracks)
+            tracks[track_id] = updated
         elif action.startswith("birth:"):
             track_id = action.split(":", 1)[1]
-            model = HMMEmitterModel2(self.model_config)
-            model.process(pdw)
-            child.tracks[track_id] = _BayesianTrack(
-                track_id=track_id,
-                model=model,
-                birth_toa_s=pdw.toa_s,
-                last_assigned_toa_s=pdw.toa_s,
-                pulse_count=1,
-                rate_shape=self.config.track_rate_prior_shape + 1.0,
-                rate_exposure_s=self.config.track_rate_prior_exposure_s,
-            )
-        return child
+            if birth_track.track_id != track_id:
+                raise RuntimeError("shared birth state has the wrong identity")
+            tracks = dict(parent.tracks)
+            tracks[track_id] = birth_track
+        return _GlobalHypothesis(
+            log_weight=log_weight,
+            tracks=tracks,
+            last_scene_toa_s=pdw.toa_s,
+            last_action=action,
+        )
+
+    def _birth_track(self, pdw: PDW) -> _BayesianTrack:
+        model = HMMEmitterModel2(self.model_config)
+        model.process(pdw)
+        self._sharing_metrics["birth_state_constructions"] += 1
+        return _BayesianTrack(
+            track_id=f"B{pdw.pdw_id}",
+            model=model,
+            birth_toa_s=pdw.toa_s,
+            last_assigned_toa_s=pdw.toa_s,
+            pulse_count=1,
+            rate_shape=self.config.track_rate_prior_shape + 1.0,
+            rate_prior_exposure_s=self.config.track_rate_prior_exposure_s,
+        )
 
     def process(self, pdw: PDW) -> BayesianModel3Update:
         if pdw.frequency_hz <= 0.0 or pdw.pulse_width_s <= 0.0:
             raise ValueError("PDW frequency and pulse width must be positive")
         children: list[_GlobalHypothesis] = []
+        mark_cache: dict[int, float] = {}
+        update_cache: dict[int, _BayesianTrack] = {}
+        birth_track = self._birth_track(pdw)
         for parent in self._hypotheses:
             if parent.last_scene_toa_s is not None and pdw.toa_s < parent.last_scene_toa_s:
                 raise ValueError("PDWs must arrive in non-decreasing TOA order")
@@ -243,16 +277,21 @@ class BayesianModel3Tracker:
             survival_log_factor = -self._total_unmarked_intensity(
                 parent, elapsed_s,
             ) * elapsed_s
-            intensities = self._event_log_intensities(parent, pdw, elapsed_s)
+            intensities = self._event_log_intensities(
+                parent,
+                pdw,
+                mark_cache,
+            )
             for action, log_intensity in intensities.items():
                 if not math.isfinite(log_intensity):
                     continue
                 children.append(self._child_for_action(
                     parent,
                     pdw,
-                    elapsed_s,
                     action,
                     parent.log_weight + survival_log_factor + log_intensity,
+                    update_cache,
+                    birth_track,
                 ))
         if not children:
             raise ValueError("PDW lies outside declared birth and clutter support")
@@ -278,6 +317,15 @@ class BayesianModel3Tracker:
             )
             for track_id in hypothesis.tracks:
                 existence[track_id] = existence.get(track_id, 0.0) + probability
+        association_total = sum(association.values())
+        association = {
+            action: probability / association_total
+            for action, probability in association.items()
+        }
+        existence = {
+            track_id: min(max(probability, 0.0), 1.0)
+            for track_id, probability in existence.items()
+        }
         map_action = max(association, key=association.get)
         return BayesianModel3Update(
             pdw_id=pdw.pdw_id,
@@ -301,6 +349,9 @@ class BayesianModel3Tracker:
                 if track_id not in representatives or probability > representatives[track_id][0]:
                     representatives[track_id] = (probability, track)
         rows = []
+        scene_toa_s = self._hypotheses[0].last_scene_toa_s
+        if scene_toa_s is None:
+            scene_toa_s = 0.0
         for track_id in sorted(existence, key=lambda item: (-existence[item], item)):
             _probability, representative = representatives[track_id]
             rows.append({
@@ -308,7 +359,9 @@ class BayesianModel3Tracker:
                 "existence_probability": existence[track_id],
                 "conditional_branch_count": branch_counts[track_id],
                 "representative_pulse_count": representative.pulse_count,
-                "representative_expected_rate_hz": representative.expected_rate_hz,
+                "representative_expected_rate_hz": representative.expected_rate_hz(
+                    scene_toa_s
+                ),
                 "birth_toa_s": representative.birth_toa_s,
                 "last_assigned_toa_s": representative.last_assigned_toa_s,
                 "representative_model": representative.model.snapshot(),
@@ -321,6 +374,8 @@ class BayesianModel3Tracker:
             "config": asdict(self.config),
             "global_hypotheses": len(self._hypotheses),
             "last_retained_posterior_mass": self._last_retained_mass,
+            "posterior_representation": "shared-state hypothesis DAG",
+            "sharing_metrics": dict(self._sharing_metrics),
             "hard_association_feedback": False,
             "confirmation_threshold": None,
             "track_existence": {
