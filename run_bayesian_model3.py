@@ -37,6 +37,13 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--max-local-waveform-hypotheses", type=int, default=16,
+        help=(
+            "per-emitter posterior cap for RF/PW state histories; this budget "
+            "is independent of the global association cap"
+        ),
+    )
+    parser.add_argument(
         "--max-rf-states", type=int, default=64,
         help=(
             "per-emitter RF-state truncation; Model 3 uses 64 while standalone "
@@ -59,10 +66,15 @@ def main() -> None:
         raise ValueError("progress-every cannot be negative")
     if args.max_rf_states < 1:
         raise ValueError("max-rf-states must be positive")
+    if args.max_local_waveform_hypotheses < 1:
+        raise ValueError("max-local-waveform-hypotheses must be positive")
 
     targets = {str(value) for value in args.truth_emitters}
     config = BayesianModel3Config(
         max_global_hypotheses=args.max_global_hypotheses,
+        max_local_waveform_hypotheses=(
+            args.max_local_waveform_hypotheses
+        ),
     )
     model_config = HMMModel2Config(
         model1=HMMModel1Config(max_rf_states=args.max_rf_states),
@@ -74,6 +86,11 @@ def main() -> None:
     last_update = None
     source_pdws = 0
     selected_pdws = 0
+    global_retained_mass_sum = 0.0
+    global_retained_mass_min = 1.0
+    local_retained_mass_sum = 0.0
+    local_retained_mass_min = 1.0
+    local_retained_mass_events = 0
     diagnostic_handle = None
     started_at = time.monotonic()
     try:
@@ -88,6 +105,20 @@ def main() -> None:
             update = tracker.process(item)
             last_update = update
             selected_pdws += 1
+            global_retained_mass_sum += update.retained_posterior_mass
+            global_retained_mass_min = min(
+                global_retained_mass_min,
+                update.retained_posterior_mass,
+            )
+            if update.minimum_local_waveform_retained_mass is not None:
+                local_retained_mass_sum += (
+                    update.minimum_local_waveform_retained_mass
+                )
+                local_retained_mass_min = min(
+                    local_retained_mass_min,
+                    update.minimum_local_waveform_retained_mass,
+                )
+                local_retained_mass_events += 1
             selected_counts[truth] += 1
             for action, probability in update.association_probabilities.items():
                 if action.startswith("track:") or action.startswith("birth:"):
@@ -142,6 +173,15 @@ def main() -> None:
             "representative_expected_rate_hz": (
                 snapshot["representative_expected_rate_hz"]
             ),
+            "local_waveform_hypotheses": (
+                snapshot["local_waveform_hypotheses"]
+            ),
+            "local_waveform_last_retained_mass": (
+                snapshot["local_waveform_last_retained_mass"]
+            ),
+            "local_waveform_map_probability": (
+                snapshot["local_waveform_map_probability"]
+            ),
         })
 
     result = {
@@ -166,6 +206,21 @@ def main() -> None:
             "wall_s": elapsed_wall_s,
             "selected_pdws_per_s": selected_pdws / elapsed_wall_s,
         },
+        "truncation_diagnostics": {
+            "global_retained_mass_mean": (
+                global_retained_mass_sum / selected_pdws
+            ),
+            "global_retained_mass_min": global_retained_mass_min,
+            "local_waveform_events_measured": local_retained_mass_events,
+            "local_waveform_minimum_retained_mass_mean": (
+                local_retained_mass_sum / local_retained_mass_events
+                if local_retained_mass_events else None
+            ),
+            "local_waveform_retained_mass_min": (
+                local_retained_mass_min
+                if local_retained_mass_events else None
+            ),
+        },
         "expected_background_source_mass": dict(expected_source_mass),
         "tracks": track_rows,
         "interpretation_boundary": {
@@ -173,17 +228,22 @@ def main() -> None:
             "hard_track_assignment_used_for_filter_update": False,
             "confirmation_threshold_present": False,
             "top_k_pruning_is_computational_approximation": True,
+            "global_and_local_top_k_budgets_are_separate": True,
             "association_proposals_pruned_before_hmm_materialization": True,
             "waveform_state_birth_is_bayesian": True,
             "model2_distance_gates_active_in_model3": False,
             "configured_global_hypothesis_cap": args.max_global_hypotheses,
+            "configured_local_waveform_hypothesis_cap": (
+                args.max_local_waveform_hypotheses
+            ),
             "configured_rf_state_cap": args.max_rf_states,
             "lifecycle_implemented": False,
         },
     }
     result["provenance"]["processing_path"] = (
         "controlled truth selection outside inference -> truth-free marked-Poisson "
-        "birth/clutter/existing-track hypotheses -> bounded global posterior"
+        "birth/clutter/existing-track hypotheses -> bounded global association "
+        "posterior with bounded per-track RF/PW-state posterior"
     )
     root = Path(__file__).resolve().parent
     result["provenance"]["active_components"] = {
@@ -196,9 +256,9 @@ def main() -> None:
         },
         "multi_target_filter": {
             "function": (
-                "BayesianModel3Tracker.process: score/prune discrete proposals "
-                "over association and known/new RF/PW state explanations, then "
-                "materialize retained conditional HMM states"
+                "BayesianModel3Tracker.process: marginalize bounded local "
+                "known/new RF/PW-state posteriors inside each emitter, then "
+                "score/prune global association proposals"
             ),
             "source": "sequential_pdw_tracker/model3_bayesian.py",
         },

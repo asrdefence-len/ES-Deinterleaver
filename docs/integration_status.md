@@ -119,6 +119,34 @@ Bayesian lifecycle modelling follows afterward.
 Do not describe a full-scene benchmark as accepted before those steps are
 complete.
 
+That local representation is now implemented as a separately bounded
+posterior inside each emitter track. Known/new RF and PW alternatives are
+marginalized before global association, so every existing emitter contributes
+one global branch rather than four waveform-topology branches. Conditional on
+a retained association, its local waveform posterior is updated and truncated
+under its own declared cap. Standalone Model 2 and the supported blob pipeline
+remain unchanged.
+
+On the same complete 24,741-PDW controlled E46/E38 replay, a global cap of 16
+and local waveform cap of four again produce only B39 and B58 at unit
+existence. Their fractional purities are 0.9999999995 and 1.0. Combined
+fractional coverage is 99.98280%, compared with 99.98323% before the
+representation change. Global retained mass improves from a 99.7770% mean and
+79.8482% minimum to a 99.99993% mean and 99.4620% minimum. The local waveform
+posterior retains 99.7431% on average but reaches a 69.1935% minimum; both
+truncation losses are now recorded separately.
+
+This is a posterior-representation improvement but a runtime regression. Wall
+time increases from 29.78 to 138.39 seconds and local conditional HMM
+materializations reach 846,400. A matched 2,000-PDW comparison measured 44.61
+seconds at local cap 16, 11.13 seconds at cap four and 5.47 seconds at cap two;
+identity purity was unchanged, while minimum local retained mass fell from
+78.03% to 69.19% and 52.06%. Do not describe this revision as a scalability
+win. The next single investigation is execution/representation optimization
+of the local posterior while freezing the event model, lifecycle and input.
+Bayesian lifecycle modelling follows only after that cost is controlled.
+All 304 project tests pass at this milestone.
+
 ## Active sequential architecture: Model 1 reference and Model 2 PW increment
 
 Incremental patching of the causal MAP surrogate has stopped. It multiplied

@@ -127,6 +127,58 @@ def test_pruning_precedes_conditional_hmm_materialization():
     assert metrics["birth_state_constructions"] < 12
 
 
+def test_local_waveform_posterior_has_an_independent_bounded_budget():
+    tracker = BayesianModel3Tracker(config(
+        max_global_hypotheses=32,
+        max_local_waveform_hypotheses=2,
+    ))
+    measured_local_mass = []
+    for index in range(16):
+        update = tracker.process(pdw(index))
+        if update.minimum_local_waveform_retained_mass is not None:
+            measured_local_mass.append(
+                update.minimum_local_waveform_retained_mass
+            )
+
+    assert measured_local_mass
+    assert all(0.0 < value <= 1.0 for value in measured_local_mass)
+    assert all(
+        row["local_waveform_hypotheses"] <= 2
+        for row in tracker.snapshots()
+    )
+    metrics = tracker.summary()["sharing_metrics"]
+    assert metrics["local_waveform_updates"] > 0
+    assert metrics["local_waveform_materializations"] <= (
+        2 * metrics["local_waveform_updates"]
+    )
+
+
+def test_current_event_association_marginalizes_local_state_birth_before_pruning():
+    narrow = BayesianModel3Tracker(config(
+        max_local_waveform_hypotheses=1,
+    ))
+    wide = BayesianModel3Tracker(config(
+        max_local_waveform_hypotheses=16,
+    ))
+
+    first_narrow = narrow.process(pdw(0))
+    first_wide = wide.process(pdw(0))
+    assert first_narrow.association_probabilities == pytest.approx(
+        first_wide.association_probabilities
+    )
+
+    second_narrow = narrow.process(pdw(1))
+    second_wide = wide.process(pdw(1))
+    assert second_narrow.association_probabilities == pytest.approx(
+        second_wide.association_probabilities
+    )
+    assert second_narrow.minimum_local_waveform_retained_mass is not None
+    assert second_wide.minimum_local_waveform_retained_mass is not None
+    assert second_wide.minimum_local_waveform_retained_mass >= (
+        second_narrow.minimum_local_waveform_retained_mass
+    )
+
+
 def test_model3_waveform_state_posterior_does_not_use_model2_distance_gates():
     narrow_gates = HMMModel2Config(
         model1=HMMModel1Config(rf_new_state_gate_hz=1.0),

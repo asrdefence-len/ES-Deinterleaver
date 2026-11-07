@@ -3,8 +3,10 @@
 Every chronological PDW is explained by one of three mutually exclusive event
 sources: an existing emitter, a new emitter, or clutter.  Association remains a
 posterior distribution over global hypotheses; the diagnostic MAP action is
-never fed back as a hard decision.  The only approximation in this first
-milestone is bounded top-K global-hypothesis pruning.
+never fed back as a hard decision.  RF/PW state-birth uncertainty is
+Rao-Blackwellized into a separate bounded posterior inside each emitter track.
+The declared approximations are therefore independent top-K budgets for global
+association and local waveform state.
 
 The event model is a marked Poisson process.  Existing emitters have Gamma-
 Poisson pulse-rate posteriors and Model 2 supplies their RF/AOA/PW mark density.
@@ -45,6 +47,7 @@ class BayesianModel3Config:
     pulse_width_min_s: float = 5e-9
     pulse_width_max_s: float = 300e-6
     max_global_hypotheses: int = 16
+    max_local_waveform_hypotheses: int = 16
 
     def __post_init__(self) -> None:
         positive = (
@@ -53,9 +56,10 @@ class BayesianModel3Config:
             self.track_rate_prior_shape,
             self.track_rate_prior_exposure_s,
             self.max_global_hypotheses,
+            self.max_local_waveform_hypotheses,
         )
         if any(value <= 0.0 for value in positive):
-            raise ValueError("Bayesian Model 3 rates and capacity must be positive")
+            raise ValueError("Bayesian Model 3 rates and capacities must be positive")
         if self.frequency_max_hz <= self.frequency_min_hz:
             raise ValueError("frequency support must have positive width")
         if self.pulse_width_min_s <= 0.0:
@@ -65,9 +69,43 @@ class BayesianModel3Config:
 
 
 @dataclass(frozen=True)
+class _LocalWaveformHypothesis:
+    """One conditional RF/AOA/PW filter within an emitter track."""
+
+    log_weight: float
+    model: HMMEmitterModel2
+
+
+@dataclass(frozen=True)
+class _LocalWaveformPosterior:
+    """Bounded posterior over waveform-state histories for one emitter."""
+
+    hypotheses: tuple[_LocalWaveformHypothesis, ...]
+    last_retained_mass: float = 1.0
+
+
+@dataclass(frozen=True)
+class _LocalWaveformProposal:
+    """A scored local state-birth branch before HMM materialization."""
+
+    source: HMMEmitterModel2
+    log_weight: float
+    create_rf_state: bool
+    create_pulse_width_state: bool
+
+
+@dataclass(frozen=True)
+class _LocalWaveformScore:
+    """Aggregate mark density and its conditional local decomposition."""
+
+    log_density: float
+    proposals: tuple[_LocalWaveformProposal, ...]
+
+
+@dataclass(frozen=True)
 class _BayesianTrack:
     track_id: str
-    model: HMMEmitterModel2
+    model: _LocalWaveformPosterior
     birth_toa_s: float
     last_assigned_toa_s: float
     pulse_count: int
@@ -92,12 +130,10 @@ class _GlobalHypothesis:
 
 @dataclass(frozen=True)
 class _EventExplanation:
-    """One joint association and waveform-state explanation."""
+    """One global event-source explanation."""
 
     reported_action: str
     log_intensity: float
-    create_rf_state: bool = False
-    create_pulse_width_state: bool = False
 
 
 @dataclass(frozen=True)
@@ -118,6 +154,7 @@ class BayesianModel3Update:
     map_action_for_reporting: str
     retained_global_hypotheses: int
     retained_posterior_mass: float
+    minimum_local_waveform_retained_mass: float | None
 
 
 class BayesianModel3Tracker:
@@ -147,6 +184,9 @@ class BayesianModel3Tracker:
             "birth_state_constructions": 0,
             "global_child_proposals": 0,
             "retained_child_materializations": 0,
+            "local_waveform_proposals": 0,
+            "local_waveform_updates": 0,
+            "local_waveform_materializations": 0,
         }
 
     def _uniform_mark_log_density(self, pdw: PDW) -> float:
@@ -160,78 +200,115 @@ class BayesianModel3Tracker:
         )
         return -math.log(frequency_width) - math.log(360.0) - math.log(log_pw_width)
 
-    def _track_mark_explanations(
+    def _local_waveform_score(
         self,
-        track_id: str,
-        track: _BayesianTrack,
+        posterior: _LocalWaveformPosterior,
         pdw: PDW,
-    ) -> tuple[_EventExplanation, ...]:
-        """Enumerate known/new RF and PW explanations for one track.
-
-        The alternatives partition the track mark density.  Unlike the prior
-        aggregate calculation, the new-state indicators remain explicit so
-        that a retained branch can perform the matching conditional update.
-        """
-        evidence = track.model.predictive_evidence(pdw)
+    ) -> _LocalWaveformScore:
+        """Marginalize known/new RF and PW states within one emitter."""
         frequency_width = self.config.frequency_max_hz - self.config.frequency_min_hz
         log_pw_width = math.log(
             self.config.pulse_width_max_s / self.config.pulse_width_min_s
         )
         rf_new_probability = self.model_config.model1.new_state_prior
         pw_new_probability = self.model_config.new_state_prior
-        can_create_rf, can_create_pw = track.model.waveform_state_capacity()
-
-        if can_create_rf:
-            rf_options = (
-                (
-                    False,
-                    math.log1p(-rf_new_probability) + evidence.rf_log_evidence,
-                ),
-                (
-                    True,
-                    math.log(rf_new_probability) - math.log(frequency_width),
-                ),
+        proposals: list[_LocalWaveformProposal] = []
+        for local in posterior.hypotheses:
+            evidence = local.model.predictive_evidence(pdw)
+            can_create_rf, can_create_pw = local.model.waveform_state_capacity()
+            if can_create_rf:
+                rf_options = (
+                    (
+                        False,
+                        math.log1p(-rf_new_probability)
+                        + evidence.rf_log_evidence,
+                    ),
+                    (
+                        True,
+                        math.log(rf_new_probability) - math.log(frequency_width),
+                    ),
+                )
+            else:
+                rf_options = ((False, evidence.rf_log_evidence),)
+            if can_create_pw:
+                pw_options = (
+                    (
+                        False,
+                        math.log1p(-pw_new_probability)
+                        + evidence.pulse_width_log_evidence,
+                    ),
+                    (
+                        True,
+                        math.log(pw_new_probability) - math.log(log_pw_width),
+                    ),
+                )
+            else:
+                pw_options = ((False, evidence.pulse_width_log_evidence),)
+            proposals.extend(
+                _LocalWaveformProposal(
+                    source=local.model,
+                    log_weight=(
+                        local.log_weight
+                        + evidence.aoa_log_evidence
+                        + rf_log_density
+                        + pw_log_density
+                    ),
+                    create_rf_state=create_rf_state,
+                    create_pulse_width_state=create_pw_state,
+                )
+                for create_rf_state, rf_log_density in rf_options
+                for create_pw_state, pw_log_density in pw_options
             )
-        else:
-            # Once representation capacity is exhausted, the occupied-state
-            # model owns all RF prior mass rather than silently discarding the
-            # unavailable new-state alternative.
-            rf_options = ((False, evidence.rf_log_evidence),)
+        self._sharing_metrics["local_waveform_proposals"] += len(proposals)
+        return _LocalWaveformScore(
+            log_density=_logsumexp([item.log_weight for item in proposals]),
+            proposals=tuple(proposals),
+        )
 
-        if can_create_pw:
-            pw_options = (
-                (
-                    False,
-                    math.log1p(-pw_new_probability)
-                    + evidence.pulse_width_log_evidence,
-                ),
-                (
-                    True,
-                    math.log(pw_new_probability) - math.log(log_pw_width),
-                ),
+    def _update_local_waveform_posterior(
+        self,
+        score: _LocalWaveformScore,
+        pdw: PDW,
+    ) -> _LocalWaveformPosterior:
+        """Condition and independently truncate one local waveform posterior."""
+        normalized = [
+            proposal.log_weight - score.log_density
+            for proposal in score.proposals
+        ]
+        ranked = sorted(
+            zip(score.proposals, normalized, strict=True),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        retained = ranked[:self.config.max_local_waveform_hypotheses]
+        retained_mass = sum(math.exp(log_weight) for _, log_weight in retained)
+        retained_normalizer = _logsumexp([
+            log_weight for _, log_weight in retained
+        ])
+        hypotheses = []
+        for proposal, log_weight in retained:
+            model = proposal.source.clone_active()
+            model.process_active_features_conditioned(
+                pdw,
+                create_rf_state=proposal.create_rf_state,
+                create_pulse_width_state=proposal.create_pulse_width_state,
             )
-        else:
-            pw_options = ((False, evidence.pulse_width_log_evidence),)
-
-        action = f"track:{track_id}"
-        return tuple(
-            _EventExplanation(
-                reported_action=action,
-                log_intensity=(
-                    evidence.aoa_log_evidence + rf_log_density + pw_log_density
-                ),
-                create_rf_state=create_rf_state,
-                create_pulse_width_state=create_pw_state,
-            )
-            for create_rf_state, rf_log_density in rf_options
-            for create_pw_state, pw_log_density in pw_options
+            hypotheses.append(_LocalWaveformHypothesis(
+                log_weight=log_weight - retained_normalizer,
+                model=model,
+            ))
+        self._sharing_metrics["local_waveform_updates"] += 1
+        self._sharing_metrics["local_waveform_materializations"] += len(hypotheses)
+        return _LocalWaveformPosterior(
+            hypotheses=tuple(hypotheses),
+            last_retained_mass=retained_mass,
         )
 
     def _event_log_intensities(
         self,
         hypothesis: _GlobalHypothesis,
         pdw: PDW,
-        mark_cache: dict[int, tuple[_EventExplanation, ...]],
+        mark_cache: dict[int, _LocalWaveformScore],
     ) -> list[_EventExplanation]:
         background_log_density = self._uniform_mark_log_density(pdw)
         values = [
@@ -251,28 +328,17 @@ class BayesianModel3Tracker:
         ]
         for track_id, track in hypothesis.tracks.items():
             self._sharing_metrics["track_mark_requests"] += 1
-            cache_key = id(track)
+            cache_key = id(track.model)
             if cache_key not in mark_cache:
-                mark_cache[cache_key] = self._track_mark_explanations(
-                    track_id,
-                    track,
-                    pdw,
-                )
+                mark_cache[cache_key] = self._local_waveform_score(track.model, pdw)
                 self._sharing_metrics["track_mark_evaluations"] += 1
             predicted_rate = track.expected_rate_hz(pdw.toa_s)
-            values.extend(
-                _EventExplanation(
-                    reported_action=explanation.reported_action,
-                    log_intensity=(
-                        math.log(predicted_rate) + explanation.log_intensity
-                    ),
-                    create_rf_state=explanation.create_rf_state,
-                    create_pulse_width_state=(
-                        explanation.create_pulse_width_state
-                    ),
-                )
-                for explanation in mark_cache[cache_key]
-            )
+            values.append(_EventExplanation(
+                reported_action=f"track:{track_id}",
+                log_intensity=(
+                    math.log(predicted_rate) + mark_cache[cache_key].log_density
+                ),
+            ))
         return values
 
     def _total_unmarked_intensity(
@@ -295,7 +361,10 @@ class BayesianModel3Tracker:
         pdw: PDW,
         explanation: _EventExplanation,
         log_weight: float,
-        update_cache: dict[tuple[int, bool, bool], _BayesianTrack],
+        update_cache: dict[int, _BayesianTrack],
+        local_update_cache: dict[int, _LocalWaveformPosterior],
+        mark_cache: dict[int, _LocalWaveformScore],
+        local_retained_masses: list[float],
         birth_track: _BayesianTrack | None,
     ) -> _GlobalHypothesis:
         action = explanation.reported_action
@@ -303,21 +372,18 @@ class BayesianModel3Tracker:
         if action.startswith("track:"):
             track_id = action.split(":", 1)[1]
             track = parent.tracks[track_id]
-            cache_key = (
-                id(track),
-                explanation.create_rf_state,
-                explanation.create_pulse_width_state,
-            )
+            cache_key = id(track)
             updated = update_cache.get(cache_key)
             if updated is None:
-                model = track.model.clone_active()
-                model.process_active_features_conditioned(
-                    pdw,
-                    create_rf_state=explanation.create_rf_state,
-                    create_pulse_width_state=(
-                        explanation.create_pulse_width_state
-                    ),
-                )
+                model_key = id(track.model)
+                model = local_update_cache.get(model_key)
+                if model is None:
+                    model = self._update_local_waveform_posterior(
+                        mark_cache[model_key],
+                        pdw,
+                    )
+                    local_update_cache[model_key] = model
+                    local_retained_masses.append(model.last_retained_mass)
                 updated = _BayesianTrack(
                     track_id=track.track_id,
                     model=model,
@@ -352,7 +418,9 @@ class BayesianModel3Tracker:
         self._sharing_metrics["birth_state_constructions"] += 1
         return _BayesianTrack(
             track_id=f"B{pdw.pdw_id}",
-            model=model,
+            model=_LocalWaveformPosterior(hypotheses=(
+                _LocalWaveformHypothesis(log_weight=0.0, model=model),
+            )),
             birth_toa_s=pdw.toa_s,
             last_assigned_toa_s=pdw.toa_s,
             pulse_count=1,
@@ -364,7 +432,7 @@ class BayesianModel3Tracker:
         if pdw.frequency_hz <= 0.0 or pdw.pulse_width_s <= 0.0:
             raise ValueError("PDW frequency and pulse width must be positive")
         proposals: list[_ChildProposal] = []
-        mark_cache: dict[int, tuple[_EventExplanation, ...]] = {}
+        mark_cache: dict[int, _LocalWaveformScore] = {}
         for parent in self._hypotheses:
             if parent.last_scene_toa_s is not None and pdw.toa_s < parent.last_scene_toa_s:
                 raise ValueError("PDWs must arrive in non-decreasing TOA order")
@@ -398,12 +466,11 @@ class BayesianModel3Tracker:
         if not proposals:
             raise ValueError("PDW lies outside declared birth and clutter support")
 
-        # Rao-Blackwellized execution order: score and prune the discrete
-        # association variable first.  The conditional RF/AOA/PW state is
-        # copied and updated only for proposals that survive top-K pruning.
-        # No probability or branch ordering changes relative to eager
-        # materialization because child state is absent from the current-event
-        # weight.
+        # Rao-Blackwellized execution order: marginalize the bounded local
+        # RF/PW posterior into one current-event track likelihood, then prune
+        # the global association variable. Conditional waveform branches are
+        # copied and updated only for global proposals that survive. The local
+        # cap remains a declared approximation for future-event state.
         full_log_normalizer = _logsumexp([
             proposal.log_weight for proposal in proposals
         ])
@@ -416,7 +483,9 @@ class BayesianModel3Tracker:
         retained_mass = sum(math.exp(value) for value in normalized_log_weights)
         retained_log_normalizer = _logsumexp(normalized_log_weights)
 
-        update_cache: dict[tuple[int, bool, bool], _BayesianTrack] = {}
+        update_cache: dict[int, _BayesianTrack] = {}
+        local_update_cache: dict[int, _LocalWaveformPosterior] = {}
+        local_retained_masses: list[float] = []
         birth_track: _BayesianTrack | None = None
         retained: list[_GlobalHypothesis] = []
         for proposal, normalized_log_weight in zip(
@@ -435,6 +504,9 @@ class BayesianModel3Tracker:
                 proposal.explanation,
                 normalized_log_weight - retained_log_normalizer,
                 update_cache,
+                local_update_cache,
+                mark_cache,
+                local_retained_masses,
                 birth_track,
             ))
         self._sharing_metrics["retained_child_materializations"] += len(retained)
@@ -468,6 +540,9 @@ class BayesianModel3Tracker:
             map_action_for_reporting=map_action,
             retained_global_hypotheses=len(retained),
             retained_posterior_mass=retained_mass,
+            minimum_local_waveform_retained_mass=(
+                min(local_retained_masses) if local_retained_masses else None
+            ),
         )
 
     def snapshots(self) -> list[dict]:
@@ -487,6 +562,10 @@ class BayesianModel3Tracker:
             scene_toa_s = 0.0
         for track_id in sorted(existence, key=lambda item: (-existence[item], item)):
             _probability, representative = representatives[track_id]
+            map_local = max(
+                representative.model.hypotheses,
+                key=lambda item: item.log_weight,
+            )
             rows.append({
                 "track_id": track_id,
                 "existence_probability": existence[track_id],
@@ -497,7 +576,16 @@ class BayesianModel3Tracker:
                 ),
                 "birth_toa_s": representative.birth_toa_s,
                 "last_assigned_toa_s": representative.last_assigned_toa_s,
-                "representative_model": representative.model.snapshot(),
+                "representative_model": map_local.model.snapshot(),
+                "local_waveform_hypotheses": len(
+                    representative.model.hypotheses
+                ),
+                "local_waveform_last_retained_mass": (
+                    representative.model.last_retained_mass
+                ),
+                "local_waveform_map_probability": math.exp(
+                    map_local.log_weight
+                ),
             })
         return rows
 
@@ -512,13 +600,14 @@ class BayesianModel3Tracker:
             "global_hypotheses": len(self._hypotheses),
             "last_retained_posterior_mass": self._last_retained_mass,
             "posterior_representation": (
-                "shared-state hypothesis DAG; joint association and Bayesian "
-                "known/new RF/PW-state proposals are pruned before conditional "
-                "RF/AOA/PW HMM materialization"
+                "shared-state global hypothesis DAG over event association; "
+                "each emitter carries an independently bounded local posterior "
+                "over known/new RF/PW-state histories"
             ),
             "waveform_state_birth": (
-                "posterior competition over known/new RF and PW alternatives; "
-                "Model 2 distance gates are inactive in Model 3"
+                "known/new RF and PW alternatives are marginalized locally "
+                "before global association; Model 2 distance gates are inactive "
+                "in Model 3"
             ),
             "sharing_metrics": dict(self._sharing_metrics),
             "hard_association_feedback": False,
@@ -528,7 +617,7 @@ class BayesianModel3Tracker:
                 for row in self.snapshots()
             },
             "known_boundary": (
-                "track death/survival branching is not implemented in this first "
-                "association-and-birth milestone"
+                "global and local top-K truncation are measured approximations; "
+                "track death/survival branching is not implemented"
             ),
         }
