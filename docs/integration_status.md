@@ -62,13 +62,28 @@ because they changed which E38 birth identity survived, despite similar final
 association probabilities. The full project suite passes 299 tests.
 
 This passes the first controlled scalability check, not full-scene
-acceptance, and 3.46 seconds for 2,000 PDWs is still above the sub-second
-development target and far above real-time scene rate. The next single
-investigation is a Rao-Blackwellized association representation that avoids
-enumerating and copying a Model 2 filter for every retained global branch.
-Replacing the inherited RF/PW state-creation distance gates with posterior
-mass over occupied and unoccupied waveform states follows that execution
-change; Bayesian lifecycle modelling follows afterward.
+acceptance, and 3.16 seconds on the user's 2,000-PDW replay was still above the
+sub-second development target and far above real-time scene rate.
+
+The next execution revision applies Rao-Blackwellized ordering without changing
+the bounded posterior: it scores and top-K prunes discrete association
+proposals before copying or updating the conditional Model 2 HMM. Discarded
+children therefore never materialize RF/AOA/PW state. On the saved 2,000-PDW
+development replay, conditional HMM updates fall from 34,235 to 16,176 and
+birth-state constructions from 2,000 to 28. Wall time falls from 3.16 to 1.86
+seconds. On the saved 10,000-PDW replay, HMM updates fall from 167,983 to 82,457,
+birth constructions from 10,000 to 29, and wall time from 13.99 to 9.34 seconds.
+The final 2,000- and 10,000-PDW association posteriors, marginal track
+existence, and retained mass are exactly unchanged; the original 250-PDW
+128-hypothesis reference changes only by 2.2e-16 in one association value.
+The full project suite passes 300 tests.
+
+This is an exact execution optimization of the declared top-K model, not a new
+association approximation and not full-scene acceptance. The next single
+investigation is the complete 24,741-PDW controlled E46/E38 mixture. Replacing
+the inherited RF/PW state-creation distance gates with posterior mass over
+occupied and unoccupied waveform states follows that scalability check;
+Bayesian lifecycle modelling follows afterward.
 Do not describe a full-scene benchmark as accepted before those steps are
 complete.
 

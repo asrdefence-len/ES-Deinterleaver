@@ -101,8 +101,22 @@ def test_shared_state_dag_reuses_likelihoods_and_track_updates():
     metrics = tracker.summary()["sharing_metrics"]
     assert metrics["track_mark_evaluations"] < metrics["track_mark_requests"]
     assert metrics["track_state_updates"] < metrics["track_update_requests"]
-    assert metrics["birth_state_constructions"] == 12
+    assert metrics["birth_state_constructions"] <= 12
+    assert (
+        metrics["retained_child_materializations"]
+        < metrics["global_child_proposals"]
+    )
     assert all(
         0.0 <= probability <= 1.0
         for probability in update.track_existence_probabilities.values()
     )
+
+
+def test_pruning_precedes_conditional_hmm_materialization():
+    tracker = BayesianModel3Tracker(config(max_global_hypotheses=4))
+    for index in range(12):
+        tracker.process(pdw(index, "left" if index < 6 else "right"))
+    metrics = tracker.summary()["sharing_metrics"]
+    assert metrics["retained_child_materializations"] <= 12 * 4
+    assert metrics["track_state_updates"] < metrics["track_mark_evaluations"]
+    assert metrics["birth_state_constructions"] < 12

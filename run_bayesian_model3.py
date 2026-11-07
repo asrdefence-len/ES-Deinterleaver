@@ -159,6 +159,7 @@ def main() -> None:
             "hard_track_assignment_used_for_filter_update": False,
             "confirmation_threshold_present": False,
             "top_k_pruning_is_computational_approximation": True,
+            "association_proposals_pruned_before_hmm_materialization": True,
             "configured_global_hypothesis_cap": args.max_global_hypotheses,
             "lifecycle_implemented": False,
         },
@@ -177,7 +178,10 @@ def main() -> None:
             "source": "sequential_pdw_tracker/hmm_emitter_model2.py",
         },
         "multi_target_filter": {
-            "function": "BayesianModel3Tracker.process",
+            "function": (
+                "BayesianModel3Tracker.process: score/prune discrete proposals "
+                "then materialize retained conditional HMM states"
+            ),
             "source": "sequential_pdw_tracker/model3_bayesian.py",
         },
         "runner": {

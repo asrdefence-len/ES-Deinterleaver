@@ -10,7 +10,9 @@ The event model is a marked Poisson process.  Existing emitters have Gamma-
 Poisson pulse-rate posteriors and Model 2 supplies their RF/AOA/PW mark density.
 Birth and clutter use explicit rates and uniform mark densities over declared
 sensor support.  Track existence is the marginal posterior mass of global
-hypotheses containing that track.
+hypotheses containing that track.  Discrete association proposals are scored
+and pruned before the conditional HMM state is materialized, preserving the
+same bounded posterior while avoiding updates for discarded branches.
 """
 from __future__ import annotations
 
@@ -92,6 +94,15 @@ class _GlobalHypothesis:
 
 
 @dataclass(frozen=True)
+class _ChildProposal:
+    """A scored discrete association branch before HMM materialization."""
+
+    parent: _GlobalHypothesis
+    action: str
+    log_weight: float
+
+
+@dataclass(frozen=True)
 class BayesianModel3Update:
     pdw_id: int
     toa_s: float
@@ -125,6 +136,8 @@ class BayesianModel3Tracker:
             "track_update_requests": 0,
             "track_state_updates": 0,
             "birth_state_constructions": 0,
+            "global_child_proposals": 0,
+            "retained_child_materializations": 0,
         }
 
     def _uniform_mark_log_density(self, pdw: PDW) -> float:
@@ -207,11 +220,10 @@ class BayesianModel3Tracker:
         action: str,
         log_weight: float,
         update_cache: dict[int, _BayesianTrack],
-        birth_track: _BayesianTrack,
+        birth_track: _BayesianTrack | None,
     ) -> _GlobalHypothesis:
         tracks = parent.tracks
         if action.startswith("track:"):
-            self._sharing_metrics["track_update_requests"] += 1
             track_id = action.split(":", 1)[1]
             track = parent.tracks[track_id]
             cache_key = id(track)
@@ -234,6 +246,8 @@ class BayesianModel3Tracker:
             tracks[track_id] = updated
         elif action.startswith("birth:"):
             track_id = action.split(":", 1)[1]
+            if birth_track is None:
+                raise RuntimeError("birth proposal was not materialized")
             if birth_track.track_id != track_id:
                 raise RuntimeError("shared birth state has the wrong identity")
             tracks = dict(parent.tracks)
@@ -262,10 +276,8 @@ class BayesianModel3Tracker:
     def process(self, pdw: PDW) -> BayesianModel3Update:
         if pdw.frequency_hz <= 0.0 or pdw.pulse_width_s <= 0.0:
             raise ValueError("PDW frequency and pulse width must be positive")
-        children: list[_GlobalHypothesis] = []
+        proposals: list[_ChildProposal] = []
         mark_cache: dict[int, float] = {}
-        update_cache: dict[int, _BayesianTrack] = {}
-        birth_track = self._birth_track(pdw)
         for parent in self._hypotheses:
             if parent.last_scene_toa_s is not None and pdw.toa_s < parent.last_scene_toa_s:
                 raise ValueError("PDWs must arrive in non-decreasing TOA order")
@@ -284,26 +296,56 @@ class BayesianModel3Tracker:
             for action, log_intensity in intensities.items():
                 if not math.isfinite(log_intensity):
                     continue
-                children.append(self._child_for_action(
-                    parent,
-                    pdw,
-                    action,
-                    parent.log_weight + survival_log_factor + log_intensity,
-                    update_cache,
-                    birth_track,
+                if action.startswith("track:"):
+                    self._sharing_metrics["track_update_requests"] += 1
+                proposals.append(_ChildProposal(
+                    parent=parent,
+                    action=action,
+                    log_weight=(
+                        parent.log_weight + survival_log_factor + log_intensity
+                    ),
                 ))
-        if not children:
+        self._sharing_metrics["global_child_proposals"] += len(proposals)
+        if not proposals:
             raise ValueError("PDW lies outside declared birth and clutter support")
 
-        full_log_normalizer = _logsumexp([child.log_weight for child in children])
-        for child in children:
-            child.log_weight -= full_log_normalizer
-        children.sort(key=lambda item: item.log_weight, reverse=True)
-        retained = children[:self.config.max_global_hypotheses]
-        retained_mass = sum(math.exp(item.log_weight) for item in retained)
-        retained_log_normalizer = _logsumexp([item.log_weight for item in retained])
-        for item in retained:
-            item.log_weight -= retained_log_normalizer
+        # Rao-Blackwellized execution order: score and prune the discrete
+        # association variable first.  The conditional RF/AOA/PW state is
+        # copied and updated only for proposals that survive top-K pruning.
+        # No probability or branch ordering changes relative to eager
+        # materialization because child state is absent from the current-event
+        # weight.
+        full_log_normalizer = _logsumexp([
+            proposal.log_weight for proposal in proposals
+        ])
+        proposals.sort(key=lambda item: item.log_weight, reverse=True)
+        retained_proposals = proposals[:self.config.max_global_hypotheses]
+        normalized_log_weights = [
+            proposal.log_weight - full_log_normalizer
+            for proposal in retained_proposals
+        ]
+        retained_mass = sum(math.exp(value) for value in normalized_log_weights)
+        retained_log_normalizer = _logsumexp(normalized_log_weights)
+
+        update_cache: dict[int, _BayesianTrack] = {}
+        birth_track: _BayesianTrack | None = None
+        retained: list[_GlobalHypothesis] = []
+        for proposal, normalized_log_weight in zip(
+            retained_proposals,
+            normalized_log_weights,
+            strict=True,
+        ):
+            if proposal.action.startswith("birth:") and birth_track is None:
+                birth_track = self._birth_track(pdw)
+            retained.append(self._child_for_action(
+                proposal.parent,
+                pdw,
+                proposal.action,
+                normalized_log_weight - retained_log_normalizer,
+                update_cache,
+                birth_track,
+            ))
+        self._sharing_metrics["retained_child_materializations"] += len(retained)
         self._hypotheses = retained
         self._last_retained_mass = retained_mass
 
@@ -369,11 +411,17 @@ class BayesianModel3Tracker:
 
     def summary(self) -> dict:
         return {
-            "model": "Bayesian Model 3 marked-Poisson multi-hypothesis tracker",
+            "model": (
+                "Rao-Blackwellized Bayesian Model 3 marked-Poisson "
+                "multi-hypothesis tracker"
+            ),
             "config": asdict(self.config),
             "global_hypotheses": len(self._hypotheses),
             "last_retained_posterior_mass": self._last_retained_mass,
-            "posterior_representation": "shared-state hypothesis DAG",
+            "posterior_representation": (
+                "shared-state hypothesis DAG; discrete association proposals "
+                "are pruned before conditional RF/AOA/PW HMM materialization"
+            ),
             "sharing_metrics": dict(self._sharing_metrics),
             "hard_association_feedback": False,
             "confirmation_threshold": None,
