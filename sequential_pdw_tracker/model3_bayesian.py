@@ -14,7 +14,6 @@ hypotheses containing that track.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 import math
 
@@ -46,7 +45,7 @@ class BayesianModel3Config:
     frequency_max_hz: float = 18.0e9
     pulse_width_min_s: float = 5e-9
     pulse_width_max_s: float = 300e-6
-    max_global_hypotheses: int = 128
+    max_global_hypotheses: int = 16
 
     def __post_init__(self) -> None:
         positive = (
@@ -218,8 +217,8 @@ class BayesianModel3Tracker:
             cache_key = id(track)
             updated = update_cache.get(cache_key)
             if updated is None:
-                model = deepcopy(track.model)
-                model.process(pdw)
+                model = track.model.clone_active()
+                model.process_active_features(pdw)
                 updated = _BayesianTrack(
                     track_id=track.track_id,
                     model=model,
@@ -248,7 +247,7 @@ class BayesianModel3Tracker:
 
     def _birth_track(self, pdw: PDW) -> _BayesianTrack:
         model = HMMEmitterModel2(self.model_config)
-        model.process(pdw)
+        model.process_active_features(pdw)
         self._sharing_metrics["birth_state_constructions"] += 1
         return _BayesianTrack(
             track_id=f"B{pdw.pdw_id}",

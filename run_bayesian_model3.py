@@ -27,7 +27,13 @@ def main() -> None:
         "--limit-selected", type=int, default=250,
         help="maximum selected PDWs in the controlled feasibility block",
     )
-    parser.add_argument("--max-global-hypotheses", type=int, default=128)
+    parser.add_argument(
+        "--max-global-hypotheses", type=int, default=16,
+        help=(
+            "global posterior branch cap; 16 is the validated development "
+            "profile and 128 reproduces the wider reference"
+        ),
+    )
     parser.add_argument(
         "--progress-every", type=int, default=1000,
         help="print progress after this many selected PDWs; zero disables it",
@@ -101,6 +107,7 @@ def main() -> None:
             diagnostic_handle.close()
     if last_update is None:
         raise ValueError("controlled selection produced no PDWs")
+    elapsed_wall_s = time.monotonic() - started_at
 
     track_rows = []
     for snapshot in tracker.snapshots():
@@ -141,6 +148,10 @@ def main() -> None:
         },
         "model": tracker.summary(),
         "last_update": asdict(last_update),
+        "runtime": {
+            "wall_s": elapsed_wall_s,
+            "selected_pdws_per_s": selected_pdws / elapsed_wall_s,
+        },
         "expected_background_source_mass": dict(expected_source_mass),
         "tracks": track_rows,
         "interpretation_boundary": {
@@ -148,6 +159,7 @@ def main() -> None:
             "hard_track_assignment_used_for_filter_update": False,
             "confirmation_threshold_present": False,
             "top_k_pruning_is_computational_approximation": True,
+            "configured_global_hypothesis_cap": args.max_global_hypotheses,
             "lifecycle_implemented": False,
         },
     }
@@ -158,7 +170,10 @@ def main() -> None:
     root = Path(__file__).resolve().parent
     result["provenance"]["active_components"] = {
         "emitter_mark_model": {
-            "function": "HMMEmitterModel2.predictive_evidence / process",
+            "function": (
+                "HMMEmitterModel2.predictive_evidence / "
+                "process_active_features / clone_active"
+            ),
             "source": "sequential_pdw_tracker/hmm_emitter_model2.py",
         },
         "multi_target_filter": {
@@ -177,7 +192,8 @@ def main() -> None:
     args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
     print(
         f"Controlled Bayesian block: {selected_pdws} PDWs; "
-        f"{last_update.retained_global_hypotheses} retained global hypotheses"
+        f"{last_update.retained_global_hypotheses} retained global hypotheses; "
+        f"wall {elapsed_wall_s:.2f} s"
     )
     print(
         "Posterior mass retained at last event: "

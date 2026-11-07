@@ -127,6 +127,53 @@ def test_model2_ignores_amplitude():
     assert left.snapshot() == right.snapshot()
 
 
+def test_active_feature_path_matches_full_model_without_timing_shadow():
+    full = HMMEmitterModel2()
+    active = HMMEmitterModel2()
+    for index in range(120):
+        item = pdw(
+            index,
+            index * 11,
+            (1000, 1200, 1400)[index % 3],
+            (0.10, 0.27, 0.43)[index % 3],
+            aoa_deg=30.0 + 0.1 * math.sin(index),
+        )
+        full.process(item)
+        active.process_active_features(item)
+
+    candidate = pdw(200, 1500, 1200, 0.27, aoa_deg=30.0)
+    assert active.predictive_evidence(candidate) == full.predictive_evidence(candidate)
+    full_snapshot = full.snapshot()
+    active_snapshot = active.snapshot()
+    for key in ("updates", "rf_states", "rf_transition_matrix", "aoa"):
+        assert active_snapshot[key] == full_snapshot[key]
+    assert active_snapshot["pulse_width_states"] == full_snapshot["pulse_width_states"]
+    assert active_snapshot["pulse_width_transition_matrix"] == (
+        full_snapshot["pulse_width_transition_matrix"]
+    )
+    assert active_snapshot["detected_train_timing_shadow"]["observed_gap_count"] == 0
+    assert full_snapshot["detected_train_timing_shadow"]["observed_gap_count"] == 119
+
+
+def test_active_clone_is_exact_and_independent():
+    original = HMMEmitterModel2()
+    for index in range(80):
+        original.process_active_features(pdw(
+            index,
+            index * 10,
+            (1000, 1200)[index % 2],
+            (0.10, 0.27)[index % 2],
+            aoa_deg=32.0,
+        ))
+    clone = original.clone_active()
+    candidate = pdw(100, 1000, 1000, 0.10, aoa_deg=32.0)
+    assert clone.predictive_evidence(candidate) == original.predictive_evidence(candidate)
+
+    before = original.snapshot()
+    clone.process_active_features(candidate)
+    assert original.snapshot() == before
+
+
 def test_predictive_evidence_scores_without_mutating_trained_model():
     tracker = HMMEmitterModel2()
     for index in range(120):

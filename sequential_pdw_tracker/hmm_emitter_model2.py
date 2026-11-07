@@ -228,6 +228,67 @@ class HMMEmitterModel2(HMMEmitterModel1):
             model1_log_evidence=model1_update.total_log_evidence,
         )
 
+    def process_active_features(self, pdw: PDW) -> None:
+        """Update RF/AOA/PW state without maintaining the timing shadow.
+
+        Model 3 uses only the active RF, AOA and pulse-width mark density.  Its
+        timing shadow has zero feedback, so copying and extending the complete
+        received-gap history cannot affect any Model 3 probability.  This
+        method deliberately preserves the active-state update equations and
+        chronological bookkeeping while omitting only that inactive history.
+        """
+        if pdw.frequency_hz <= 0.0 or pdw.pulse_width_s <= 0.0:
+            raise ValueError("PDW frequency and pulse width must be positive")
+        if self._last_toa_s is not None and pdw.toa_s < self._last_toa_s:
+            raise ValueError("PDWs must arrive in non-decreasing TOA order")
+        elapsed_s = (
+            0.0 if self._last_toa_s is None else pdw.toa_s - self._last_toa_s
+        )
+        self._rf_forward(pdw.frequency_hz)
+        self._aoa_update(pdw.aoa_deg, elapsed_s)
+        self._last_toa_s = pdw.toa_s
+        self._updates += 1
+        self._pulse_width_forward(pdw.pulse_width_s)
+
+    def clone_active(self) -> "HMMEmitterModel2":
+        """Clone the probabilistically active state and omit shadow history."""
+        # Avoid constructing a fresh timing estimator: its grid is relatively
+        # expensive and Model 3 never uses or updates it.  The clone owns every
+        # mutable active-state object and array listed below.
+        clone = object.__new__(HMMEmitterModel2)
+        clone.model2_config = self.model2_config
+        clone.config = self.config
+        clone._rf_states = [
+            type(state)(
+                mean_hz=state.mean_hz,
+                variance_hz2=state.variance_hz2,
+                effective_count=state.effective_count,
+            )
+            for state in self._rf_states
+        ]
+        clone._rf_posterior = self._rf_posterior.copy()
+        clone._transition_counts = self._transition_counts.copy()
+        clone._aoa_mean_deg = self._aoa_mean_deg
+        clone._aoa_variance_deg2 = self._aoa_variance_deg2
+        clone._last_toa_s = self._last_toa_s
+        clone._updates = self._updates
+        clone._pulse_width_states = [
+            type(state)(
+                log_mean=state.log_mean,
+                log_variance=state.log_variance,
+                effective_count=state.effective_count,
+            )
+            for state in self._pulse_width_states
+        ]
+        clone._pulse_width_posterior = self._pulse_width_posterior.copy()
+        clone._pulse_width_transition_counts = (
+            self._pulse_width_transition_counts.copy()
+        )
+        # Safe to share because process_active_features never mutates the
+        # zero-feedback timing shadow.  Model 3 source models keep it empty.
+        clone._shadow_timing = self._shadow_timing
+        return clone
+
     def predictive_evidence(self, pdw: PDW) -> Model2PredictiveEvidence:
         """Score a candidate without changing state or creating new modes."""
         if pdw.frequency_hz <= 0.0 or pdw.pulse_width_s <= 0.0:

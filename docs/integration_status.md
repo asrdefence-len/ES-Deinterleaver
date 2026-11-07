@@ -46,10 +46,29 @@ identical. The balanced 2,000-PDW replay completes in 60.03 seconds, retains
 existence. Fractional evaluation purity is 0.999999993 for E38-dominant B39
 and 1.0 for E46-dominant B58. The full suite passes 297 tests.
 
+The first execution-only optimization now gives Model 3 a compact active-state
+clone and update path. It copies only RF/AOA/PW sufficient state and does not
+construct or extend the zero-feedback detected-gap timing shadow. At the
+original 128-hypothesis cap, the saved 250-PDW posterior is unchanged to a
+maximum association difference of 2.2e-16 and the balanced 2,000-PDW replay
+falls from 60.03 to 22.44 seconds. A separately declared 16-hypothesis
+development profile completes 2,000 PDWs in 3.46 seconds. Its final 2,000-PDW
+association and existence posteriors are identical to the 128-hypothesis run;
+on the more ambiguous 250-PDW prefix its total absolute existence-mass
+difference is 4.3e-6. The runner now defaults to that validated development
+profile and records wall time and throughput; `--max-global-hypotheses 128`
+retains the wider reference. Four- and eight-hypothesis profiles were rejected
+because they changed which E38 birth identity survived, despite similar final
+association probabilities. The full project suite passes 299 tests.
+
 This passes the first controlled scalability check, not full-scene
-acceptance. The next single model change is to replace the inherited RF/PW
-state-creation distance gates with posterior mass over occupied and
-unoccupied waveform states. Bayesian lifecycle modelling follows that change.
+acceptance, and 3.46 seconds for 2,000 PDWs is still above the sub-second
+development target and far above real-time scene rate. The next single
+investigation is a Rao-Blackwellized association representation that avoids
+enumerating and copying a Model 2 filter for every retained global branch.
+Replacing the inherited RF/PW state-creation distance gates with posterior
+mass over occupied and unoccupied waveform states follows that execution
+change; Bayesian lifecycle modelling follows afterward.
 Do not describe a full-scene benchmark as accepted before those steps are
 complete.
 
