@@ -31,7 +31,15 @@ therefore posterior decisions, but latent waveform-state birth is not yet
 fully Bayesian. The next single investigation is a longer controlled
 chronological block containing substantial support from both emitters, with
 runtime, retained posterior mass, marginal existence and fractional identity
-composition recorded together. The following model change should replace the
+composition recorded together. The smallest reasonably balanced prefix is
+2,000 selected PDWs (1,067 E46 and 933 E38), but the unchanged implementation
+did not complete that replay within 150 seconds and was stopped without a
+result. The current explicit branch-and-clone representation therefore fails
+the first scalability check. The next single investigation is an equivalent
+factorized or Rao-Blackwellized posterior representation that avoids cloning
+every emitter HMM on every branch; association probabilities and the 250-PDW
+reference must remain unchanged within numerical tolerance. Increasing a
+decision threshold is not an acceptable substitute. After that, replace the
 inherited state-creation gates with posterior mass over occupied and
 unoccupied RF/PW states before Bayesian lifecycle modelling is added. Do not
 describe a full-scene benchmark as accepted before those steps are complete.
