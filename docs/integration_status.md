@@ -456,5 +456,26 @@ was removed.
 
 The exact design, command and limitations are in
 [Model 2 staged birth validation](model2_staged_birth_validation.md). The next
-single component is lifecycle management; HMM, timing and validation settings
-remain frozen.
+evaluation-only diagnostic is the raw-PDW track overlay; it does not alter the
+tracker.
+
+## Separate raw-PDW HMM experiment: track-over-data audit
+
+A compact post-decision trace now records raw Frequency, AOA and PW beside each
+full-scene Model 2 decision. Truth remains unavailable to association and is
+appended only for evaluation colouring. The 44 tracks are rendered five per
+page over the same raw chronological scene, producing nine pages.
+
+This view confirms clean behaviour for E46/T19 and E38/T16, but also exposes a
+specific remaining birth defect. The first eight AOA-only pulses assigned to
+T8 already comprise E14, E26 and E35; T12 begins with E22/E8, and T18 with
+E6/E10/E28. Their RF/PW populations are visibly distinct, but after entering
+one AOA seed they become learned states of one candidate and can pass later
+held-out validation as a persistent mixture. Conversely, pure T13/E40 remains
+tentative, showing that mixed confirmation and pure non-confirmation are
+different failure modes.
+
+The exact command, colour semantics and interpretation are in
+[Model 2 raw-PDW track overlay audit](model2_track_overlay_audit.md). Lifecycle
+is deferred for one isolated investigation of AOA-seed composition/branching.
+HMM equations, timing, held-out thresholds and lifecycle remain frozen.

@@ -7,7 +7,8 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
-from sequential_pdw_tracker.io import iter_pdws
+from sequential_pdw_tracker.audit_trace import Model2AuditTraceRecorder
+from sequential_pdw_tracker.io import inspect_dataset, iter_pdws
 from sequential_pdw_tracker.model2_birth import (
     Model2AutomaticBirthTracker,
     Model2BirthConfig,
@@ -26,6 +27,13 @@ def main() -> None:
         default=Path("results/sequential_pdw/hmm_model2_birth/full_scene.json"),
     )
     parser.add_argument("--diagnostics", type=Path)
+    parser.add_argument(
+        "--audit-trace", type=Path,
+        help=(
+            "Optional compressed NPZ containing every raw PDW and its "
+            "already-made tracker decision for evaluation plots"
+        ),
+    )
     parser.add_argument("--progress-every", type=int, default=100_000)
     parser.add_argument(
         "--max-tracks", type=int, default=8,
@@ -52,6 +60,8 @@ def main() -> None:
         raise ValueError("maximum tracks must be positive")
     if args.end_activity_window_s <= 0.0:
         raise ValueError("end activity window must be positive")
+    if args.audit_trace and args.audit_trace.suffix.lower() != ".npz":
+        raise ValueError("audit trace path must end in .npz")
 
     birth_config = Model2BirthConfig(
         max_tracks=args.max_tracks,
@@ -73,6 +83,10 @@ def main() -> None:
     processed = 0
     final_toa_s = None
     diagnostic_handle = None
+    audit_recorder = (
+        Model2AuditTraceRecorder(inspect_dataset(args.dataset).total_pdws)
+        if args.audit_trace else None
+    )
     try:
         if args.diagnostics:
             args.diagnostics.parent.mkdir(parents=True, exist_ok=True)
@@ -83,6 +97,8 @@ def main() -> None:
             truth = str(label)
             truth_counts[truth] += 1
             decision = tracker.process(pdw)
+            if audit_recorder is not None:
+                audit_recorder.record(pdw, label, decision)
             outcomes[decision.outcome] += 1
             score_upper_bound_pruned += len(
                 decision.confirmed_score_upper_bound_pruned
@@ -141,6 +157,16 @@ def main() -> None:
     snapshots = tracker.snapshots()
     if final_toa_s is None:
         raise ValueError("dataset contains no PDWs")
+    audit_trace_metadata = None
+    if audit_recorder is not None:
+        audit_recorder.save(args.audit_trace)
+        audit_trace_metadata = {
+            "path": str(args.audit_trace),
+            "sha256": sha256_file(args.audit_trace),
+            "size_bytes": args.audit_trace.stat().st_size,
+            "recorded_pdws": audit_recorder.count,
+            "truth_use": "post-decision evaluation overlay only",
+        }
     mapping = {}
     track_rows = []
     for snapshot in snapshots:
@@ -251,6 +277,7 @@ def main() -> None:
                 "all E46/E38 pulses plus automatic birth/confirmation events; "
                 "aggregates cover every PDW"
             ),
+            "audit_trace": audit_trace_metadata,
         },
         "tracker": {
             "total_tracks": len(snapshots),
@@ -329,6 +356,11 @@ def main() -> None:
             "source": "run_model2_full_scene_birth.py",
         },
     }
+    if args.audit_trace:
+        result["provenance"]["active_components"]["evaluation_audit"] = {
+            "function": "Model2AuditTraceRecorder.record / save",
+            "source": "sequential_pdw_tracker/audit_trace.py",
+        }
     for component in result["provenance"]["active_components"].values():
         component["source_sha256"] = sha256_file(source_root / component["source"])
 
@@ -363,6 +395,8 @@ def main() -> None:
         "mixed tracks "
         f"{identity_evaluation['tracks_with_multiple_truth_emitters']}"
     )
+    if args.audit_trace:
+        print(f"Wrote {args.audit_trace}")
     print(f"Wrote {args.output}")
 
 
