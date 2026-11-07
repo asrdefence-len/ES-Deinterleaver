@@ -30,6 +30,11 @@ from .model2_birth import (
     Model2BirthConfig,
     Model2BirthDecision,
 )
+from .model3_bayesian import (
+    BayesianModel3Config,
+    BayesianModel3Tracker,
+    BayesianModel3Update,
+)
 from .phase_timing_shadow import (
     PhaseTimingFit,
     PhaseTimingShadowConfig,
@@ -55,6 +60,9 @@ __all__ = [
     "Model2AutomaticBirthTracker",
     "Model2BirthConfig",
     "Model2BirthDecision",
+    "BayesianModel3Config",
+    "BayesianModel3Tracker",
+    "BayesianModel3Update",
     "Model2CompetitionDecision",
     "Model2CompetitiveAssociation",
     "Model2SingleTrackAssociationArm",

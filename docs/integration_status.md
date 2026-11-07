@@ -1,5 +1,41 @@
 # Integration status
 
+## Experimental Bayesian Model 3 foundation
+
+The raw-PDW HMM experiment now has a separate Model 3 association-and-birth
+foundation. Model 2 and its saved full-scene staged-birth evidence remain
+unchanged. Model 3 reuses the Model 2 RF/AOA/PW HMM inside a marked-Poisson
+global multi-hypothesis filter: every PDW branches into existing-emitter,
+new-emitter and clutter explanations, and track existence is posterior
+hypothesis mass rather than a confirmation counter or score threshold.
+
+An explicit unseen-RF-state and unseen-PW-state mixture is required so waveform
+agility is not mistaken for a new emitter. A regression with alternating RF/PW
+modes exposed that failure before the mixture was added. The focused Bayesian,
+Model 2 state, and staged-birth regression set passes 18 tests; the full project
+suite passes 296 tests.
+
+The first controlled 250-selected-PDW E46/E38 replay retained 128 global
+hypotheses and 0.999999984 of the posterior mass represented before pruning.
+Its two leading identities had marginal existence 0.999999981 and 0.999615041.
+Fractional evaluation purity was 1.0 for the E46-dominant identity and
+0.999999454 for the E38-dominant identity. The chronological block was highly
+unbalanced, with approximately 234 E46 associations and 12 E38 associations,
+so this is feasibility evidence rather than balanced performance acceptance.
+
+The declared top-K global-hypothesis bound remains a computational
+approximation, and survival/death, coasting and reacquisition remain
+unimplemented. Model 3 also still inherits Model 2's fixed RF- and PW-distance
+gates for creating latent waveform states. Association and emitter birth are
+therefore posterior decisions, but latent waveform-state birth is not yet
+fully Bayesian. The next single investigation is a longer controlled
+chronological block containing substantial support from both emitters, with
+runtime, retained posterior mass, marginal existence and fractional identity
+composition recorded together. The following model change should replace the
+inherited state-creation gates with posterior mass over occupied and
+unoccupied RF/PW states before Bayesian lifecycle modelling is added. Do not
+describe a full-scene benchmark as accepted before those steps are complete.
+
 ## Active sequential architecture: Model 1 reference and Model 2 PW increment
 
 Incremental patching of the causal MAP surrogate has stopped. It multiplied
