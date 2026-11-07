@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import math
 
+from .hmm_emitter import HMMModel1Config
 from .hmm_emitter_model2 import HMMEmitterModel2, HMMModel2Config
 from .model import PDW
 
@@ -29,10 +30,6 @@ def _logsumexp(values: list[float]) -> float:
         return -math.inf
     maximum = max(finite)
     return maximum + math.log(sum(math.exp(value - maximum) for value in finite))
-
-
-def _logaddexp(left: float, right: float) -> float:
-    return _logsumexp([left, right])
 
 
 @dataclass(frozen=True)
@@ -94,11 +91,21 @@ class _GlobalHypothesis:
 
 
 @dataclass(frozen=True)
+class _EventExplanation:
+    """One joint association and waveform-state explanation."""
+
+    reported_action: str
+    log_intensity: float
+    create_rf_state: bool = False
+    create_pulse_width_state: bool = False
+
+
+@dataclass(frozen=True)
 class _ChildProposal:
-    """A scored discrete association branch before HMM materialization."""
+    """A scored joint latent branch before HMM materialization."""
 
     parent: _GlobalHypothesis
-    action: str
+    explanation: _EventExplanation
     log_weight: float
 
 
@@ -127,7 +134,9 @@ class BayesianModel3Tracker:
         model_config: HMMModel2Config | None = None,
     ):
         self.config = config or BayesianModel3Config()
-        self.model_config = model_config or HMMModel2Config()
+        self.model_config = model_config or HMMModel2Config(
+            model1=HMMModel1Config(max_rf_states=64),
+        )
         self._hypotheses = [_GlobalHypothesis()]
         self._last_retained_mass = 1.0
         self._sharing_metrics = {
@@ -151,12 +160,18 @@ class BayesianModel3Tracker:
         )
         return -math.log(frequency_width) - math.log(360.0) - math.log(log_pw_width)
 
-    def _track_mark_log_density(
+    def _track_mark_explanations(
         self,
+        track_id: str,
         track: _BayesianTrack,
         pdw: PDW,
-    ) -> float:
-        """Mix learned-state evidence with explicit unseen-state probability."""
+    ) -> tuple[_EventExplanation, ...]:
+        """Enumerate known/new RF and PW explanations for one track.
+
+        The alternatives partition the track mark density.  Unlike the prior
+        aggregate calculation, the new-state indicators remain explicit so
+        that a retained branch can perform the matching conditional update.
+        """
         evidence = track.model.predictive_evidence(pdw)
         frequency_width = self.config.frequency_max_hz - self.config.frequency_min_hz
         log_pw_width = math.log(
@@ -164,38 +179,99 @@ class BayesianModel3Tracker:
         )
         rf_new_probability = self.model_config.model1.new_state_prior
         pw_new_probability = self.model_config.new_state_prior
-        rf_log_density = _logaddexp(
-            math.log1p(-rf_new_probability) + evidence.rf_log_evidence,
-            math.log(rf_new_probability) - math.log(frequency_width),
+        can_create_rf, can_create_pw = track.model.waveform_state_capacity()
+
+        if can_create_rf:
+            rf_options = (
+                (
+                    False,
+                    math.log1p(-rf_new_probability) + evidence.rf_log_evidence,
+                ),
+                (
+                    True,
+                    math.log(rf_new_probability) - math.log(frequency_width),
+                ),
+            )
+        else:
+            # Once representation capacity is exhausted, the occupied-state
+            # model owns all RF prior mass rather than silently discarding the
+            # unavailable new-state alternative.
+            rf_options = ((False, evidence.rf_log_evidence),)
+
+        if can_create_pw:
+            pw_options = (
+                (
+                    False,
+                    math.log1p(-pw_new_probability)
+                    + evidence.pulse_width_log_evidence,
+                ),
+                (
+                    True,
+                    math.log(pw_new_probability) - math.log(log_pw_width),
+                ),
+            )
+        else:
+            pw_options = ((False, evidence.pulse_width_log_evidence),)
+
+        action = f"track:{track_id}"
+        return tuple(
+            _EventExplanation(
+                reported_action=action,
+                log_intensity=(
+                    evidence.aoa_log_evidence + rf_log_density + pw_log_density
+                ),
+                create_rf_state=create_rf_state,
+                create_pulse_width_state=create_pw_state,
+            )
+            for create_rf_state, rf_log_density in rf_options
+            for create_pw_state, pw_log_density in pw_options
         )
-        pw_log_density = _logaddexp(
-            math.log1p(-pw_new_probability) + evidence.pulse_width_log_evidence,
-            math.log(pw_new_probability) - math.log(log_pw_width),
-        )
-        return rf_log_density + evidence.aoa_log_evidence + pw_log_density
 
     def _event_log_intensities(
         self,
         hypothesis: _GlobalHypothesis,
         pdw: PDW,
-        mark_cache: dict[int, float],
-    ) -> dict[str, float]:
+        mark_cache: dict[int, tuple[_EventExplanation, ...]],
+    ) -> list[_EventExplanation]:
         background_log_density = self._uniform_mark_log_density(pdw)
-        values = {
-            "clutter": math.log(self.config.clutter_rate_hz) + background_log_density,
-            f"birth:B{pdw.pdw_id}": (
-                math.log(self.config.birth_event_rate_hz) + background_log_density
+        values = [
+            _EventExplanation(
+                reported_action="clutter",
+                log_intensity=(
+                    math.log(self.config.clutter_rate_hz) + background_log_density
+                ),
             ),
-        }
+            _EventExplanation(
+                reported_action=f"birth:B{pdw.pdw_id}",
+                log_intensity=(
+                    math.log(self.config.birth_event_rate_hz)
+                    + background_log_density
+                ),
+            ),
+        ]
         for track_id, track in hypothesis.tracks.items():
             self._sharing_metrics["track_mark_requests"] += 1
             cache_key = id(track)
             if cache_key not in mark_cache:
-                mark_cache[cache_key] = self._track_mark_log_density(track, pdw)
+                mark_cache[cache_key] = self._track_mark_explanations(
+                    track_id,
+                    track,
+                    pdw,
+                )
                 self._sharing_metrics["track_mark_evaluations"] += 1
             predicted_rate = track.expected_rate_hz(pdw.toa_s)
-            values[f"track:{track_id}"] = (
-                math.log(predicted_rate) + mark_cache[cache_key]
+            values.extend(
+                _EventExplanation(
+                    reported_action=explanation.reported_action,
+                    log_intensity=(
+                        math.log(predicted_rate) + explanation.log_intensity
+                    ),
+                    create_rf_state=explanation.create_rf_state,
+                    create_pulse_width_state=(
+                        explanation.create_pulse_width_state
+                    ),
+                )
+                for explanation in mark_cache[cache_key]
             )
         return values
 
@@ -217,20 +293,31 @@ class BayesianModel3Tracker:
         self,
         parent: _GlobalHypothesis,
         pdw: PDW,
-        action: str,
+        explanation: _EventExplanation,
         log_weight: float,
-        update_cache: dict[int, _BayesianTrack],
+        update_cache: dict[tuple[int, bool, bool], _BayesianTrack],
         birth_track: _BayesianTrack | None,
     ) -> _GlobalHypothesis:
+        action = explanation.reported_action
         tracks = parent.tracks
         if action.startswith("track:"):
             track_id = action.split(":", 1)[1]
             track = parent.tracks[track_id]
-            cache_key = id(track)
+            cache_key = (
+                id(track),
+                explanation.create_rf_state,
+                explanation.create_pulse_width_state,
+            )
             updated = update_cache.get(cache_key)
             if updated is None:
                 model = track.model.clone_active()
-                model.process_active_features(pdw)
+                model.process_active_features_conditioned(
+                    pdw,
+                    create_rf_state=explanation.create_rf_state,
+                    create_pulse_width_state=(
+                        explanation.create_pulse_width_state
+                    ),
+                )
                 updated = _BayesianTrack(
                     track_id=track.track_id,
                     model=model,
@@ -277,7 +364,7 @@ class BayesianModel3Tracker:
         if pdw.frequency_hz <= 0.0 or pdw.pulse_width_s <= 0.0:
             raise ValueError("PDW frequency and pulse width must be positive")
         proposals: list[_ChildProposal] = []
-        mark_cache: dict[int, float] = {}
+        mark_cache: dict[int, tuple[_EventExplanation, ...]] = {}
         for parent in self._hypotheses:
             if parent.last_scene_toa_s is not None and pdw.toa_s < parent.last_scene_toa_s:
                 raise ValueError("PDWs must arrive in non-decreasing TOA order")
@@ -293,16 +380,18 @@ class BayesianModel3Tracker:
                 pdw,
                 mark_cache,
             )
-            for action, log_intensity in intensities.items():
-                if not math.isfinite(log_intensity):
+            for explanation in intensities:
+                if not math.isfinite(explanation.log_intensity):
                     continue
-                if action.startswith("track:"):
+                if explanation.reported_action.startswith("track:"):
                     self._sharing_metrics["track_update_requests"] += 1
                 proposals.append(_ChildProposal(
                     parent=parent,
-                    action=action,
+                    explanation=explanation,
                     log_weight=(
-                        parent.log_weight + survival_log_factor + log_intensity
+                        parent.log_weight
+                        + survival_log_factor
+                        + explanation.log_intensity
                     ),
                 ))
         self._sharing_metrics["global_child_proposals"] += len(proposals)
@@ -327,7 +416,7 @@ class BayesianModel3Tracker:
         retained_mass = sum(math.exp(value) for value in normalized_log_weights)
         retained_log_normalizer = _logsumexp(normalized_log_weights)
 
-        update_cache: dict[int, _BayesianTrack] = {}
+        update_cache: dict[tuple[int, bool, bool], _BayesianTrack] = {}
         birth_track: _BayesianTrack | None = None
         retained: list[_GlobalHypothesis] = []
         for proposal, normalized_log_weight in zip(
@@ -335,12 +424,15 @@ class BayesianModel3Tracker:
             normalized_log_weights,
             strict=True,
         ):
-            if proposal.action.startswith("birth:") and birth_track is None:
+            if (
+                proposal.explanation.reported_action.startswith("birth:")
+                and birth_track is None
+            ):
                 birth_track = self._birth_track(pdw)
             retained.append(self._child_for_action(
                 proposal.parent,
                 pdw,
-                proposal.action,
+                proposal.explanation,
                 normalized_log_weight - retained_log_normalizer,
                 update_cache,
                 birth_track,
@@ -416,11 +508,17 @@ class BayesianModel3Tracker:
                 "multi-hypothesis tracker"
             ),
             "config": asdict(self.config),
+            "emitter_model_config": asdict(self.model_config),
             "global_hypotheses": len(self._hypotheses),
             "last_retained_posterior_mass": self._last_retained_mass,
             "posterior_representation": (
-                "shared-state hypothesis DAG; discrete association proposals "
-                "are pruned before conditional RF/AOA/PW HMM materialization"
+                "shared-state hypothesis DAG; joint association and Bayesian "
+                "known/new RF/PW-state proposals are pruned before conditional "
+                "RF/AOA/PW HMM materialization"
+            ),
+            "waveform_state_birth": (
+                "posterior competition over known/new RF and PW alternatives; "
+                "Model 2 distance gates are inactive in Model 3"
             ),
             "sharing_metrics": dict(self._sharing_metrics),
             "hard_association_feedback": False,

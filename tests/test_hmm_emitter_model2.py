@@ -174,6 +174,39 @@ def test_active_clone_is_exact_and_independent():
     assert original.snapshot() == before
 
 
+def test_conditioned_active_update_obeys_explicit_waveform_state_birth():
+    original = HMMEmitterModel2()
+    original.process_active_features(
+        pdw(0, 0, 1000, 0.10, aoa_deg=32.0)
+    )
+    known_only = original.clone_active()
+    explicit_birth = original.clone_active()
+    far = pdw(1, 10, 1600, 0.50, aoa_deg=32.0)
+
+    known_only.process_active_features_conditioned(
+        far,
+        create_rf_state=False,
+        create_pulse_width_state=False,
+    )
+    explicit_birth.process_active_features_conditioned(
+        far,
+        create_rf_state=True,
+        create_pulse_width_state=True,
+    )
+
+    known_snapshot = known_only.snapshot()
+    birth_snapshot = explicit_birth.snapshot()
+    assert len(known_snapshot["rf_states"]) == 1
+    assert len(known_snapshot["pulse_width_states"]) == 1
+    assert len(birth_snapshot["rf_states"]) == 2
+    assert len(birth_snapshot["pulse_width_states"]) == 2
+    assert birth_snapshot["rf_states"][-1]["posterior"] == pytest.approx(1.0)
+    assert (
+        birth_snapshot["pulse_width_states"][-1]["posterior"]
+        == pytest.approx(1.0)
+    )
+
+
 def test_predictive_evidence_scores_without_mutating_trained_model():
     tracker = HMMEmitterModel2()
     for index in range(120):

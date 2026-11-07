@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 import time
 
+from sequential_pdw_tracker.hmm_emitter import HMMModel1Config
+from sequential_pdw_tracker.hmm_emitter_model2 import HMMModel2Config
 from sequential_pdw_tracker.io import iter_pdws
 from sequential_pdw_tracker.model3_bayesian import (
     BayesianModel3Config,
@@ -35,6 +37,13 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--max-rf-states", type=int, default=64,
+        help=(
+            "per-emitter RF-state truncation; Model 3 uses 64 while standalone "
+            "Model 2 retains its existing default"
+        ),
+    )
+    parser.add_argument(
         "--progress-every", type=int, default=1000,
         help="print progress after this many selected PDWs; zero disables it",
     )
@@ -48,12 +57,17 @@ def main() -> None:
         raise ValueError("limit-selected must be positive")
     if args.progress_every < 0:
         raise ValueError("progress-every cannot be negative")
+    if args.max_rf_states < 1:
+        raise ValueError("max-rf-states must be positive")
 
     targets = {str(value) for value in args.truth_emitters}
     config = BayesianModel3Config(
         max_global_hypotheses=args.max_global_hypotheses,
     )
-    tracker = BayesianModel3Tracker(config)
+    model_config = HMMModel2Config(
+        model1=HMMModel1Config(max_rf_states=args.max_rf_states),
+    )
+    tracker = BayesianModel3Tracker(config, model_config)
     selected_counts: Counter[str] = Counter()
     fractional_composition: dict[str, Counter[str]] = defaultdict(Counter)
     expected_source_mass: Counter[str] = Counter()
@@ -160,7 +174,10 @@ def main() -> None:
             "confirmation_threshold_present": False,
             "top_k_pruning_is_computational_approximation": True,
             "association_proposals_pruned_before_hmm_materialization": True,
+            "waveform_state_birth_is_bayesian": True,
+            "model2_distance_gates_active_in_model3": False,
             "configured_global_hypothesis_cap": args.max_global_hypotheses,
+            "configured_rf_state_cap": args.max_rf_states,
             "lifecycle_implemented": False,
         },
     }
@@ -173,14 +190,15 @@ def main() -> None:
         "emitter_mark_model": {
             "function": (
                 "HMMEmitterModel2.predictive_evidence / "
-                "process_active_features / clone_active"
+                "process_active_features_conditioned / clone_active"
             ),
             "source": "sequential_pdw_tracker/hmm_emitter_model2.py",
         },
         "multi_target_filter": {
             "function": (
                 "BayesianModel3Tracker.process: score/prune discrete proposals "
-                "then materialize retained conditional HMM states"
+                "over association and known/new RF/PW state explanations, then "
+                "materialize retained conditional HMM states"
             ),
             "source": "sequential_pdw_tracker/model3_bayesian.py",
         },

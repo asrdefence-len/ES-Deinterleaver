@@ -80,9 +80,41 @@ The full project suite passes 300 tests.
 
 This is an exact execution optimization of the declared top-K model, not a new
 association approximation and not full-scene acceptance. The next single
-investigation is the complete 24,741-PDW controlled E46/E38 mixture. Replacing
-the inherited RF/PW state-creation distance gates with posterior mass over
-occupied and unoccupied waveform states follows that scalability check;
+investigation was the complete 24,741-PDW controlled E46/E38 mixture. That
+replay completed in 22.38 seconds and ended with exactly two unit-existence
+tracks. Fractional evaluation purity was 0.9999999995 for E38-dominant B39 and
+1.0 for E46-dominant B58; combined fractional coverage was 99.98310%.
+
+Model 3 now carries RF/PW state birth as an explicit Bayesian latent variable.
+For each existing-emitter explanation it competes known-RF/known-PW,
+new-RF/known-PW, known-RF/new-PW and new-RF/new-PW alternatives. Retained
+branches perform the matching conditional HMM update. Model 2's RF/PW distance
+gates are not consulted by Model 3; standalone Model 2 remains unchanged.
+The new-state probabilities remain declared priors, and RF/PW state counts and
+top-K hypotheses remain explicit finite representation bounds.
+
+The inherited 16-RF-state truncation fragmented continuously agile E38 into
+three tracks. A 32-state diagnostic still produced two E38 fragments. The
+Model 3 runner therefore declares a 64-state RF truncation; at 2,000 PDWs E38
+uses 63 states and remains one track. This is a capacity correction, not an RF
+distance threshold. The complete 24,741-PDW controlled replay again ends with
+only B39 and B58 at unit existence. Their fractional purities remain
+0.9999999995 and 1.0, and combined coverage is 99.98323%. An explicit
+new-state branch conditions the current RF or PW hidden state on the new state
+with probability one and applies a fractional predecessor-transition update;
+it does not reapply the standalone Model 2 new-state prior. The final
+controlled replay completes in 29.91 seconds. All 302 project tests pass,
+including invariance to opposite RF/PW distance-gate settings.
+
+The joint posterior is broader than the earlier aggregate unseen-state
+mixture. With 16 retained global hypotheses, per-event retained mass averages
+99.7770% but reaches a minimum of 79.8482% on 34 of 24,741 events below 90%.
+Increasing the 2,000-PDW diagnostic to 64 global hypotheses improves its
+minimum only from 79.48% to 85.58% while increasing wall time from 3.38 to
+13.34 seconds. Purity and coverage therefore pass the controlled check, but
+posterior representation acceptance remains open. The next single
+investigation is a local Rao-Blackwellized representation of RF/PW state-birth
+uncertainty so it does not consume the global emitter-association budget.
 Bayesian lifecycle modelling follows afterward.
 Do not describe a full-scene benchmark as accepted before those steps are
 complete.

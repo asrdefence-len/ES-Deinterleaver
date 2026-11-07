@@ -138,16 +138,49 @@ class HMMEmitterModel1:
         self._rf_posterior /= self._rf_posterior.sum()
         self._transition_counts = expanded
 
+    def _condition_on_new_rf_state(self, frequency_hz: float) -> None:
+        """Create an RF state and condition the current state on its birth.
+
+        The caller has already selected the explicit ``new RF state`` latent
+        branch.  Consequently the current hidden state is the newly created
+        state with probability one.  Only the predecessor state remains
+        uncertain, and its posterior supplies the fractional transition-count
+        update into the new state.
+        """
+        old_count = len(self._rf_states)
+        if old_count == 0:
+            raise RuntimeError("conditioned RF birth requires an existing state")
+        previous = self._rf_posterior.copy()
+        self._add_rf_state(frequency_hz)
+        new_index = old_count
+        transition = (
+            self._transition_counts
+            / self._transition_counts.sum(axis=1, keepdims=True)
+        )
+        predecessor = previous * transition[:old_count, new_index]
+        predecessor_total = float(predecessor.sum())
+        if predecessor_total <= 0.0:
+            raise RuntimeError("conditioned RF birth has no predecessor mass")
+        predecessor /= predecessor_total
+        self._transition_counts[:old_count, new_index] += predecessor
+        self._rf_posterior = np.zeros(old_count + 1, dtype=float)
+        self._rf_posterior[new_index] = 1.0
+
     def _rf_forward(
         self,
         frequency_hz: float,
+        *,
+        allow_state_creation: bool = True,
     ) -> tuple[float, np.ndarray, np.ndarray]:
         if not self._rf_states:
             self._add_rf_state(frequency_hz)
             return 0.0, self._rf_posterior.copy(), np.zeros(1, dtype=float)
         nearest = min(abs(frequency_hz - state.mean_hz) for state in self._rf_states)
-        if (nearest > self.config.rf_new_state_gate_hz
-                and len(self._rf_states) < self.config.max_rf_states):
+        if (
+            allow_state_creation
+            and nearest > self.config.rf_new_state_gate_hz
+            and len(self._rf_states) < self.config.max_rf_states
+        ):
             self._add_rf_state(frequency_hz)
 
         previous = self._rf_posterior.copy()

@@ -120,9 +120,32 @@ class HMMEmitterModel2(HMMEmitterModel1):
         self._pulse_width_posterior /= self._pulse_width_posterior.sum()
         self._pulse_width_transition_counts = expanded
 
+    def _condition_on_new_pulse_width_state(self, log_width: float) -> None:
+        """Create a PW state and condition the current state on its birth."""
+        old_count = len(self._pulse_width_states)
+        if old_count == 0:
+            raise RuntimeError("conditioned PW birth requires an existing state")
+        previous = self._pulse_width_posterior.copy()
+        self._add_pulse_width_state(log_width)
+        new_index = old_count
+        transition = (
+            self._pulse_width_transition_counts
+            / self._pulse_width_transition_counts.sum(axis=1, keepdims=True)
+        )
+        predecessor = previous * transition[:old_count, new_index]
+        predecessor_total = float(predecessor.sum())
+        if predecessor_total <= 0.0:
+            raise RuntimeError("conditioned PW birth has no predecessor mass")
+        predecessor /= predecessor_total
+        self._pulse_width_transition_counts[:old_count, new_index] += predecessor
+        self._pulse_width_posterior = np.zeros(old_count + 1, dtype=float)
+        self._pulse_width_posterior[new_index] = 1.0
+
     def _pulse_width_forward(
         self,
         pulse_width_s: float,
+        *,
+        allow_state_creation: bool = True,
     ) -> tuple[float, np.ndarray, np.ndarray, bool]:
         log_width = math.log(pulse_width_s)
         if not self._pulse_width_states:
@@ -139,7 +162,8 @@ class HMMEmitterModel2(HMMEmitterModel1):
         )
         state_created = False
         if (
-            nearest > self.model2_config.pulse_width_new_state_gate_log
+            allow_state_creation
+            and nearest > self.model2_config.pulse_width_new_state_gate_log
             and len(self._pulse_width_states)
             < self.model2_config.max_pulse_width_states
         ):
@@ -249,6 +273,63 @@ class HMMEmitterModel2(HMMEmitterModel1):
         self._last_toa_s = pdw.toa_s
         self._updates += 1
         self._pulse_width_forward(pdw.pulse_width_s)
+
+    def process_active_features_conditioned(
+        self,
+        pdw: PDW,
+        *,
+        create_rf_state: bool,
+        create_pulse_width_state: bool,
+    ) -> None:
+        """Update active state conditional on explicit waveform-state birth.
+
+        Model 3 treats occupied versus new RF/PW state as a discrete Bayesian
+        explanation.  This path obeys that explanation and deliberately does
+        not consult Model 2's standalone distance gates.
+        """
+        if pdw.frequency_hz <= 0.0 or pdw.pulse_width_s <= 0.0:
+            raise ValueError("PDW frequency and pulse width must be positive")
+        if self._last_toa_s is not None and pdw.toa_s < self._last_toa_s:
+            raise ValueError("PDWs must arrive in non-decreasing TOA order")
+        if not self._rf_states or not self._pulse_width_states:
+            raise RuntimeError("conditioned update requires an initialized model")
+        if create_rf_state:
+            if len(self._rf_states) >= self.config.max_rf_states:
+                raise ValueError("RF state capacity is exhausted")
+            self._condition_on_new_rf_state(pdw.frequency_hz)
+        if create_pulse_width_state:
+            if (
+                len(self._pulse_width_states)
+                >= self.model2_config.max_pulse_width_states
+            ):
+                raise ValueError("pulse-width state capacity is exhausted")
+            self._condition_on_new_pulse_width_state(
+                math.log(pdw.pulse_width_s)
+            )
+
+        elapsed_s = (
+            0.0 if self._last_toa_s is None else pdw.toa_s - self._last_toa_s
+        )
+        if not create_rf_state:
+            self._rf_forward(pdw.frequency_hz, allow_state_creation=False)
+        self._aoa_update(pdw.aoa_deg, elapsed_s)
+        self._last_toa_s = pdw.toa_s
+        self._updates += 1
+        if not create_pulse_width_state:
+            self._pulse_width_forward(
+                pdw.pulse_width_s,
+                allow_state_creation=False,
+            )
+
+    def waveform_state_capacity(self) -> tuple[bool, bool]:
+        """Return whether another RF and PW state can be represented."""
+        return (
+            len(self._rf_states) < self.config.max_rf_states,
+            (
+                len(self._pulse_width_states)
+                < self.model2_config.max_pulse_width_states
+            ),
+        )
 
     def clone_active(self) -> "HMMEmitterModel2":
         """Clone the probabilistically active state and omit shadow history."""

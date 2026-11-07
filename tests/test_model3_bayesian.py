@@ -2,6 +2,8 @@ import math
 
 import pytest
 
+from sequential_pdw_tracker.hmm_emitter import HMMModel1Config
+from sequential_pdw_tracker.hmm_emitter_model2 import HMMModel2Config
 from sequential_pdw_tracker.model import PDW
 from sequential_pdw_tracker.model3_bayesian import (
     BayesianModel3Config,
@@ -51,6 +53,9 @@ def test_every_event_returns_a_normalized_posterior_not_a_forced_assignment():
     )
     assert tracker.summary()["hard_association_feedback"] is False
     assert tracker.summary()["confirmation_threshold"] is None
+    assert tracker.summary()["emitter_model_config"]["model1"][
+        "max_rf_states"
+    ] == 64
 
 
 def test_repeated_coherent_pulses_raise_birth_track_existence():
@@ -120,3 +125,33 @@ def test_pruning_precedes_conditional_hmm_materialization():
     assert metrics["retained_child_materializations"] <= 12 * 4
     assert metrics["track_state_updates"] < metrics["track_mark_evaluations"]
     assert metrics["birth_state_constructions"] < 12
+
+
+def test_model3_waveform_state_posterior_does_not_use_model2_distance_gates():
+    narrow_gates = HMMModel2Config(
+        model1=HMMModel1Config(rf_new_state_gate_hz=1.0),
+        pulse_width_new_state_gate_log=1e-6,
+    )
+    wide_gates = HMMModel2Config(
+        model1=HMMModel1Config(rf_new_state_gate_hz=10e9),
+        pulse_width_new_state_gate_log=10.0,
+    )
+    narrow = BayesianModel3Tracker(config(), narrow_gates)
+    wide = BayesianModel3Tracker(config(), wide_gates)
+
+    for index in range(20):
+        item = pdw(index, "left" if index < 10 else "right")
+        narrow_update = narrow.process(item)
+        wide_update = wide.process(item)
+        assert narrow_update == wide_update
+
+    narrow_snapshots = narrow.snapshots()
+    wide_snapshots = wide.snapshots()
+    for rows in (narrow_snapshots, wide_snapshots):
+        for row in rows:
+            row["representative_model"].pop("config")
+            row["representative_model"].pop("model2_config")
+    assert narrow_snapshots == wide_snapshots
+    assert "distance gates are inactive" in narrow.summary()[
+        "waveform_state_birth"
+    ]
