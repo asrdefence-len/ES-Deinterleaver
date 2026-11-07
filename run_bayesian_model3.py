@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict
 import json
 from pathlib import Path
+import time
 
 from sequential_pdw_tracker.io import iter_pdws
 from sequential_pdw_tracker.model3_bayesian import (
@@ -28,6 +29,10 @@ def main() -> None:
     )
     parser.add_argument("--max-global-hypotheses", type=int, default=128)
     parser.add_argument(
+        "--progress-every", type=int, default=1000,
+        help="print progress after this many selected PDWs; zero disables it",
+    )
+    parser.add_argument(
         "--output", type=Path,
         default=Path("results/sequential_pdw/hmm_model3/controlled_block.json"),
     )
@@ -35,6 +40,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.limit_selected < 1:
         raise ValueError("limit-selected must be positive")
+    if args.progress_every < 0:
+        raise ValueError("progress-every cannot be negative")
 
     targets = {str(value) for value in args.truth_emitters}
     config = BayesianModel3Config(
@@ -48,6 +55,7 @@ def main() -> None:
     source_pdws = 0
     selected_pdws = 0
     diagnostic_handle = None
+    started_at = time.monotonic()
     try:
         if args.diagnostics:
             args.diagnostics.parent.mkdir(parents=True, exist_ok=True)
@@ -74,6 +82,18 @@ def main() -> None:
                     "evaluation_truth_label": label,
                     "posterior": asdict(update),
                 }, allow_nan=False) + "\n")
+            if (
+                args.progress_every
+                and selected_pdws % args.progress_every == 0
+            ):
+                elapsed_wall_s = time.monotonic() - started_at
+                print(
+                    f"Processed {selected_pdws:,} selected PDWs; "
+                    f"{update.retained_global_hypotheses} hypotheses; "
+                    f"last retained mass {update.retained_posterior_mass:.9f}; "
+                    f"wall {elapsed_wall_s:.1f} s",
+                    flush=True,
+                )
             if selected_pdws >= args.limit_selected:
                 break
     finally:
